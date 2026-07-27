@@ -4,7 +4,7 @@ spring:
   datasource:
     url: jdbc:postgresql://postgres.railway.internal:5432/railway
     username: postgres
-    password: cwWainAqgzmkpkhOHInQPqXojZaJGlYs
+    password: JOZiDRfSUjURFxQjgwhHnUayAInhByDt
     driver-class-name: org.postgresql.Driver
   jackson:
     time-zone: Asia/Bishkek
