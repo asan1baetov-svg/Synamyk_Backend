@@ -12,6 +12,7 @@ import synamyk.entities.Test;
 import synamyk.entities.User;
 import synamyk.entities.UserTestAccess;
 import synamyk.config.FinikConfig;
+import synamyk.exception.AppException;
 import synamyk.repo.PaymentRepository;
 import synamyk.repo.TestRepository;
 import synamyk.repo.UserRepository;
@@ -156,9 +157,14 @@ public class PaymentService {
         log.info("Test access granted: userId={}, testId={}", user.getId(), test.getId());
     }
 
-    public CreatePaymentResponse getPaymentStatus(UUID paymentId) {
+    public CreatePaymentResponse getPaymentStatus(UUID paymentId, Long userId) {
         Payment payment = paymentRepository.findByPaymentId(paymentId)
-                .orElseThrow(() -> new RuntimeException("Payment not found"));
+                .orElseThrow(() -> new AppException("Платёж не найден.", "Төлөм табылган жок."));
+
+        if (!payment.getUser().getId().equals(userId)) {
+            throw new AppException("Нет доступа.", "Мүмкүнчүлүк жок.");
+        }
+
         return new CreatePaymentResponse(payment.getPaymentId(), payment.getPaymentUrl(), payment.getStatus().name());
     }
 }

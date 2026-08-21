@@ -49,4 +49,17 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.initPayment(user.getId(), testId));
     }
 
+    @GetMapping("/{paymentId}/status")
+    @Operation(
+            summary = "Статус платежа",
+            description = "Возвращает текущий статус платежа по paymentId, полученному из /api/payments/init. " +
+                    "Используйте для опроса (polling) после оплаты через Finik SDK, пока статус не станет COMPLETED. " +
+                    "Статусы: PENDING, COMPLETED, EXPIRED, CANCELLED.")
+    public ResponseEntity<CreatePaymentResponse> getPaymentStatus(
+            @PathVariable UUID paymentId,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        return ResponseEntity.ok(paymentService.getPaymentStatus(paymentId, user.getId()));
+    }
+
 }

@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import synamyk.dto.game.GameStateResponse;
 import synamyk.dto.game.JoinGameResponse;
 import synamyk.entities.User;
 import synamyk.service.GameService;
@@ -105,6 +106,29 @@ public class GameRoomController {
         @AuthenticationPrincipal User user
     ) {
         return ResponseEntity.ok(gameService.joinGame(gameTestId, user.getId()));
+    }
+
+    @GetMapping("/{roomId}/state")
+    @Operation(
+        summary = "Снимок состояния комнаты (для реконнекта)",
+        description = """
+            Вызывайте после переподключения к WebSocket (обрыв сети, сворачивание приложения),
+            сразу как только заново подписались на /topic/game/{roomId}, чтобы восстановить экран:
+            какой сейчас вопрос, сколько секунд осталось, счёт, отвечали ли вы уже на текущий вопрос,
+            либо что игра уже завершилась, пока клиент был отключён.
+            """
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Текущее состояние комнаты"),
+        @ApiResponse(responseCode = "400", description = "Комната не найдена или вы не участник этой игры", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Не авторизован", content = @Content)
+    })
+    public ResponseEntity<GameStateResponse> getState(
+        @Parameter(description = "ID комнаты", example = "7", required = true)
+        @PathVariable Long roomId,
+        @AuthenticationPrincipal User user
+    ) {
+        return ResponseEntity.ok(gameService.getGameState(roomId, user.getId()));
     }
 
     @DeleteMapping("/queue/{gameTestId}")

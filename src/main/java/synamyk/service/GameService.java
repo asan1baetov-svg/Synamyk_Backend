@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import synamyk.dto.game.GameEvent;
+import synamyk.dto.game.GameStateResponse;
 import synamyk.dto.game.JoinGameResponse;
 import synamyk.entities.*;
 import synamyk.enums.GameRoomStatus;
@@ -165,6 +166,101 @@ public class GameService {
         }
     }
 
+    /**
+     * Snapshot of a room's current state, for a client resyncing after a WebSocket reconnect.
+     */
+    public GameStateResponse getGameState(Long roomId, Long userId) {
+        GameRoom room = gameRoomRepository.findById(roomId)
+                .orElseThrow(() -> new AppException("Комната не найдена.", "Бөлмө табылган жок."));
+
+        boolean isParticipant = userId.equals(room.getPlayer1Id()) || userId.equals(room.getPlayer2Id());
+        if (!isParticipant) {
+            throw new AppException("Нет доступа.", "Мүмкүнчүлүк жок.");
+        }
+
+        if (room.getStatus() == GameRoomStatus.WAITING) {
+            return GameStateResponse.builder().status("WAITING").roomId(roomId).build();
+        }
+
+        if (room.getStatus() == GameRoomStatus.IN_PROGRESS) {
+            ActiveGameState state = activeGames.get(roomId);
+            if (state == null) {
+                // In-memory game state lost (e.g. server restart mid-game) — don't leave the client hanging forever.
+                room.setStatus(GameRoomStatus.ABANDONED);
+                gameRoomRepository.save(room);
+                return GameStateResponse.builder().status("ABANDONED").roomId(roomId).build();
+            }
+
+            synchronized (state.lock) {
+                GameQuestion q = state.currentQuestionIndex < state.questions.size()
+                        ? state.questions.get(state.currentQuestionIndex) : null;
+
+                GameEvent.QuestionPayload questionPayload = null;
+                Integer remaining = null;
+                if (q != null) {
+                    List<GameEvent.OptionPayload> options = q.getOptions().stream()
+                            .map(o -> new GameEvent.OptionPayload(o.getId(), o.getText()))
+                            .collect(Collectors.toList());
+                    questionPayload = GameEvent.QuestionPayload.builder()
+                            .id(q.getId())
+                            .text(q.getText())
+                            .imageUrl(q.getImageUrl())
+                            .options(options)
+                            .build();
+
+                    long elapsed = state.questionStartedAt == null ? 0
+                            : java.time.Duration.between(state.questionStartedAt, java.time.Instant.now()).getSeconds();
+                    remaining = (int) Math.max(0, state.timeLimitSeconds - elapsed);
+                }
+
+                Long yourOptionId = state.currentAnswers.get(userId);
+                Boolean yourCorrect = null;
+                if (yourOptionId != null) {
+                    yourCorrect = gameAnswerOptionRepository.findById(yourOptionId)
+                            .map(o -> Boolean.TRUE.equals(o.getCorrect()))
+                            .orElse(null);
+                }
+
+                return GameStateResponse.builder()
+                        .status("IN_PROGRESS")
+                        .roomId(roomId)
+                        .player1Id(state.player1Id)
+                        .player2Id(state.player2Id)
+                        .player1Name(state.player1Name)
+                        .player2Name(state.player2Name)
+                        .player1Avatar(state.player1Avatar)
+                        .player2Avatar(state.player2Avatar)
+                        .player1Score(state.player1Score)
+                        .player2Score(state.player2Score)
+                        .questionIndex(state.currentQuestionIndex)
+                        .totalQuestions(state.questions.size())
+                        .timeLimitSeconds(state.timeLimitSeconds)
+                        .remainingSeconds(remaining)
+                        .question(questionPayload)
+                        .youAnswered(yourOptionId != null)
+                        .yourAnswerCorrect(yourCorrect)
+                        .build();
+            }
+        }
+
+        // FINISHED or ABANDONED — DB is the source of truth, in-memory state is already gone
+        Long winnerId = null;
+        if (room.getStatus() == GameRoomStatus.FINISHED) {
+            if (room.getPlayer1Score() > room.getPlayer2Score()) winnerId = room.getPlayer1Id();
+            else if (room.getPlayer2Score() > room.getPlayer1Score()) winnerId = room.getPlayer2Id();
+        }
+
+        return GameStateResponse.builder()
+                .status(room.getStatus().name())
+                .roomId(roomId)
+                .player1Id(room.getPlayer1Id())
+                .player2Id(room.getPlayer2Id())
+                .player1Score(room.getPlayer1Score())
+                .player2Score(room.getPlayer2Score())
+                .winnerId(winnerId)
+                .build();
+    }
+
     public List<GameTestSummary> listActiveGameTests() {
         return gameTestRepository.findByActiveTrue().stream()
                 .map(t -> new GameTestSummary(
@@ -227,6 +323,10 @@ public class GameService {
             state.gameTestId = room.getGameTest().getId();
             state.player1Id = room.getPlayer1Id();
             state.player2Id = room.getPlayer2Id();
+            state.player1Name = displayName(p1);
+            state.player2Name = p2Name;
+            state.player1Avatar = p1.getAvatarUrl();
+            state.player2Avatar = p2Avatar;
             state.questions = questions;
             state.timeLimitSeconds = room.getGameTest().getTimeLimitSeconds();
             state.isBotGame = isBotGame;
@@ -261,6 +361,7 @@ public class GameService {
 
             GameQuestion q = state.questions.get(state.currentQuestionIndex);
             state.currentAnswers.clear();
+            state.questionStartedAt = java.time.Instant.now();
 
             List<GameEvent.OptionPayload> options = q.getOptions().stream()
                     .map(o -> new GameEvent.OptionPayload(o.getId(), o.getText()))
@@ -387,12 +488,17 @@ public class GameService {
         Long gameTestId;
         Long player1Id;
         Long player2Id;
+        String player1Name;
+        String player2Name;
+        String player1Avatar;
+        String player2Avatar;
         List<GameQuestion> questions;
         int timeLimitSeconds;
         boolean isBotGame;
         volatile int currentQuestionIndex = 0;
         volatile int player1Score = 0;
         volatile int player2Score = 0;
+        volatile java.time.Instant questionStartedAt;
         final Map<Long, Long> currentAnswers = new ConcurrentHashMap<>();
         volatile ScheduledFuture<?> questionTimer;
         final Object lock = new Object();
