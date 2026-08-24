@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import synamyk.dto.game.GameHistoryEntry;
 import synamyk.dto.game.GameStateResponse;
 import synamyk.dto.game.JoinGameResponse;
 import synamyk.entities.User;
@@ -129,6 +130,46 @@ public class GameRoomController {
         @AuthenticationPrincipal User user
     ) {
         return ResponseEntity.ok(gameService.getGameState(roomId, user.getId()));
+    }
+
+    @PostMapping("/{roomId}/forfeit")
+    @Operation(
+        summary = "Сдаться",
+        description = """
+            Немедленно завершает игру для вызывающего игрока поражением. Победа присуждается
+            сопернику независимо от текущего счёта. Обоим клиентам придёт событие GAME_OVER
+            на /topic/game/{roomId} с заполненным полем forfeitedBy.
+
+            Работает только для игры со статусом IN_PROGRESS — для выхода из очереди ожидания
+            (WAITING) используйте DELETE /api/game/queue/{gameTestId}.
+            """
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Игра завершена, победа присуждена сопернику", content = @Content),
+        @ApiResponse(responseCode = "400", description = "Комната не найдена, вы не участник, или игра не в статусе IN_PROGRESS", content = @Content),
+        @ApiResponse(responseCode = "401", description = "Не авторизован", content = @Content)
+    })
+    public ResponseEntity<Void> forfeit(
+        @Parameter(description = "ID комнаты", example = "7", required = true)
+        @PathVariable Long roomId,
+        @AuthenticationPrincipal User user
+    ) {
+        gameService.forfeitGame(roomId, user.getId());
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/history")
+    @Operation(
+        summary = "История игр текущего пользователя",
+        description = "Возвращает все завершённые игры пользователя (включая сданные), от новых к старым."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "История игр",
+            content = @Content(array = @ArraySchema(schema = @Schema(implementation = GameHistoryEntry.class)))),
+        @ApiResponse(responseCode = "401", description = "Не авторизован", content = @Content)
+    })
+    public ResponseEntity<List<GameHistoryEntry>> getHistory(@AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(gameService.getMyHistory(user.getId()));
     }
 
     @DeleteMapping("/queue/{gameTestId}")

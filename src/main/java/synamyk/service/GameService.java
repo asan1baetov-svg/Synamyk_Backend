@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import synamyk.dto.game.GameEvent;
+import synamyk.dto.game.GameHistoryEntry;
 import synamyk.dto.game.GameStateResponse;
 import synamyk.dto.game.JoinGameResponse;
 import synamyk.entities.*;
@@ -35,6 +36,7 @@ public class GameService {
     private final GameRoomRepository gameRoomRepository;
     private final GamePlayerResultRepository gamePlayerResultRepository;
     private final UserRepository userRepository;
+    private final MinioService minioService;
 
     /** gameTestId -> roomId waiting for second player */
     private final ConcurrentHashMap<Long, Long> waitingRooms = new ConcurrentHashMap<>();
@@ -62,7 +64,19 @@ public class GameService {
             Optional<GameRoom> roomOpt = gameRoomRepository.findById(waitingRoomId);
             if (roomOpt.isPresent()) {
                 GameRoom room = roomOpt.get();
-                if (room.getStatus() == GameRoomStatus.WAITING && !room.getPlayer1Id().equals(userId)) {
+                if (room.getStatus() == GameRoomStatus.WAITING) {
+                    if (room.getPlayer1Id().equals(userId)) {
+                        // Same user calling join again while already waiting in this room —
+                        // return the existing room as-is. Do NOT cancel its bot timer or
+                        // create a new room: that would orphan the room the client already
+                        // has the id for (and is likely subscribed to over WebSocket).
+                        return JoinGameResponse.builder()
+                                .status("WAITING")
+                                .roomId(room.getId())
+                                .message("Ожидание соперника...")
+                                .build();
+                    }
+
                     // Cancel bot timer — real player joined in time
                     ScheduledFuture<?> timer = botTimers.remove(gameTestId);
                     if (timer != null) timer.cancel(false);
@@ -83,7 +97,7 @@ public class GameService {
                             .build();
                 }
             }
-            // Stale entry — clean up
+            // Stale entry (room already finished/abandoned by other means, or gone) — clean up
             waitingRooms.remove(gameTestId);
             ScheduledFuture<?> stale = botTimers.remove(gameTestId);
             if (stale != null) stale.cancel(false);
@@ -244,12 +258,6 @@ public class GameService {
         }
 
         // FINISHED or ABANDONED — DB is the source of truth, in-memory state is already gone
-        Long winnerId = null;
-        if (room.getStatus() == GameRoomStatus.FINISHED) {
-            if (room.getPlayer1Score() > room.getPlayer2Score()) winnerId = room.getPlayer1Id();
-            else if (room.getPlayer2Score() > room.getPlayer1Score()) winnerId = room.getPlayer2Id();
-        }
-
         return GameStateResponse.builder()
                 .status(room.getStatus().name())
                 .roomId(roomId)
@@ -257,7 +265,7 @@ public class GameService {
                 .player2Id(room.getPlayer2Id())
                 .player1Score(room.getPlayer1Score())
                 .player2Score(room.getPlayer2Score())
-                .winnerId(winnerId)
+                .winnerId(room.getWinnerId())
                 .build();
     }
 
@@ -267,6 +275,60 @@ public class GameService {
                         t.getId(), t.getTitle(), t.getDescription(),
                         t.getTimeLimitSeconds(), t.getQuestionsPerGame(),
                         gameQuestionRepository.countByGameTestIdAndActiveTrue(t.getId())))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Current user's completed-game history, newest first.
+     */
+    public List<GameHistoryEntry> getMyHistory(Long userId) {
+        return gamePlayerResultRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(r -> {
+                    GameRoom room = gameRoomRepository.findById(r.getRoomId()).orElse(null);
+                    GameTest gameTest = gameTestRepository.findById(r.getGameTestId()).orElse(null);
+
+                    boolean vsBot = room != null && BOT_ID.equals(room.getPlayer2Id());
+                    boolean draw = room != null && room.getStatus() == GameRoomStatus.FINISHED
+                            && room.getWinnerId() == null;
+
+                    Integer opponentScore = null;
+                    String opponentName = null;
+                    String opponentAvatar = null;
+
+                    if (room != null) {
+                        boolean isPlayer1 = userId.equals(room.getPlayer1Id());
+                        opponentScore = isPlayer1 ? room.getPlayer2Score() : room.getPlayer1Score();
+
+                        if (vsBot) {
+                            opponentName = "Бот";
+                        } else {
+                            Long opponentId = isPlayer1 ? room.getPlayer2Id() : room.getPlayer1Id();
+                            if (opponentId != null) {
+                                User opponent = userRepository.findById(opponentId).orElse(null);
+                                if (opponent != null) {
+                                    opponentName = displayName(opponent);
+                                    opponentAvatar = minioService.presign(opponent.getAvatarUrl());
+                                }
+                            }
+                        }
+                    }
+
+                    return GameHistoryEntry.builder()
+                            .roomId(r.getRoomId())
+                            .gameTestId(r.getGameTestId())
+                            .gameTestTitle(gameTest != null ? gameTest.getTitle() : null)
+                            .score(r.getScore())
+                            .opponentScore(opponentScore)
+                            .totalQuestions(r.getTotalQuestions())
+                            .won(r.getWon())
+                            .draw(draw)
+                            .vsBot(vsBot)
+                            .forfeited(room != null && room.getForfeitedBy() != null)
+                            .opponentName(opponentName)
+                            .opponentAvatar(opponentAvatar)
+                            .playedAt(room != null && room.getFinishedAt() != null ? room.getFinishedAt() : r.getCreatedAt())
+                            .build();
+                })
                 .collect(Collectors.toList());
     }
 
@@ -301,11 +363,15 @@ public class GameService {
     private void startGame(Long roomId) {
         try {
             GameRoom room = gameRoomRepository.findById(roomId).orElseThrow();
+            // room.getGameTest() is a LAZY association loaded outside any request/transaction here
+            // (this runs on the scheduler thread) — fetch it explicitly instead of touching the proxy.
+            GameTest gameTest = gameTestRepository.findById(room.getGameTest().getId()).orElseThrow();
+
             List<GameQuestion> questions = new ArrayList<>(
-                    gameQuestionRepository.findByGameTestIdAndActiveTrue(room.getGameTest().getId()));
+                    gameQuestionRepository.findByGameTestIdAndActiveTrue(gameTest.getId()));
             Collections.shuffle(questions);
 
-            int limit = room.getGameTest().getQuestionsPerGame();
+            int limit = gameTest.getQuestionsPerGame();
             if (limit > 0 && limit < questions.size()) {
                 questions = questions.subList(0, limit);
             }
@@ -320,7 +386,7 @@ public class GameService {
 
             ActiveGameState state = new ActiveGameState();
             state.roomId = roomId;
-            state.gameTestId = room.getGameTest().getId();
+            state.gameTestId = gameTest.getId();
             state.player1Id = room.getPlayer1Id();
             state.player2Id = room.getPlayer2Id();
             state.player1Name = displayName(p1);
@@ -328,7 +394,7 @@ public class GameService {
             state.player1Avatar = p1.getAvatarUrl();
             state.player2Avatar = p2Avatar;
             state.questions = questions;
-            state.timeLimitSeconds = room.getGameTest().getTimeLimitSeconds();
+            state.timeLimitSeconds = gameTest.getTimeLimitSeconds();
             state.isBotGame = isBotGame;
             activeGames.put(roomId, state);
 
@@ -429,6 +495,17 @@ public class GameService {
     }
 
     private void finishGame(ActiveGameState state) {
+        boolean p1Won = state.player1Score > state.player2Score;
+        boolean p2Won = state.player2Score > state.player1Score;
+        Long winnerId = p1Won ? state.player1Id : p2Won ? state.player2Id : null;
+        endGame(state, winnerId, null);
+    }
+
+    /**
+     * Shared game-ending path for both a normal finish (winner derived from score, forfeitedBy=null)
+     * and a forfeit (winner forced to the opponent, regardless of score).
+     */
+    private void endGame(ActiveGameState state, Long winnerId, Long forfeitedBy) {
         activeGames.remove(state.roomId);
         botRoomNames.remove(state.roomId);
         try {
@@ -437,29 +514,71 @@ public class GameService {
             room.setFinishedAt(LocalDateTime.now());
             room.setPlayer1Score(state.player1Score);
             room.setPlayer2Score(state.player2Score);
+            room.setWinnerId(winnerId);
+            room.setForfeitedBy(forfeitedBy);
             gameRoomRepository.save(room);
 
             int total = state.questions.size();
-            boolean p1Won = state.player1Score > state.player2Score;
-            boolean p2Won = state.player2Score > state.player1Score;
 
-            // Save result only for real player
-            saveResult(state.player1Id, state.gameTestId, state.roomId, state.player1Score, total, p1Won);
+            // Save result only for real players
+            saveResult(state.player1Id, state.gameTestId, state.roomId, state.player1Score, total,
+                    state.player1Id.equals(winnerId));
             if (!state.isBotGame) {
-                saveResult(state.player2Id, state.gameTestId, state.roomId, state.player2Score, total, p2Won);
+                saveResult(state.player2Id, state.gameTestId, state.roomId, state.player2Score, total,
+                        state.player2Id.equals(winnerId));
             }
 
-            Long winnerId = p1Won ? state.player1Id : p2Won ? state.player2Id : null;
             GameEvent gameOver = GameEvent.builder()
                     .type("GAME_OVER")
                     .roomId(state.roomId)
                     .player1Score(state.player1Score)
                     .player2Score(state.player2Score)
                     .winnerId(winnerId)
+                    .forfeitedBy(forfeitedBy)
                     .build();
             messaging.convertAndSend("/topic/game/" + state.roomId, gameOver);
         } catch (Exception e) {
-            log.error("finishGame error for room {}: {}", state.roomId, e.getMessage(), e);
+            log.error("endGame error for room {}: {}", state.roomId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * A participant concedes an in-progress game. The opponent is declared the winner
+     * immediately, regardless of the current score.
+     */
+    public void forfeitGame(Long roomId, Long userId) {
+        GameRoom room = gameRoomRepository.findById(roomId)
+                .orElseThrow(() -> new AppException("Комната не найдена.", "Бөлмө табылган жок."));
+
+        boolean isParticipant = userId.equals(room.getPlayer1Id()) || userId.equals(room.getPlayer2Id());
+        if (!isParticipant) {
+            throw new AppException("Нет доступа.", "Мүмкүнчүлүк жок.");
+        }
+
+        if (room.getStatus() != GameRoomStatus.IN_PROGRESS) {
+            throw new AppException(
+                    "Можно сдаться только в игре, которая уже идёт.",
+                    "Учурда жүрүп жаткан оюндан гана баш тартууга болот.");
+        }
+
+        ActiveGameState state = activeGames.get(roomId);
+        if (state == null) {
+            // In-memory state already gone (e.g. server restart) — just close out the room
+            // without clobbering a status another path may have already set concurrently.
+            if (room.getStatus() == GameRoomStatus.IN_PROGRESS) {
+                room.setStatus(GameRoomStatus.ABANDONED);
+                gameRoomRepository.save(room);
+            }
+            return;
+        }
+
+        Long opponentId = userId.equals(state.player1Id) ? state.player2Id : state.player1Id;
+
+        synchronized (state.lock) {
+            // Guard against a race with a normal finish (timer/answers) that already ended the game.
+            if (activeGames.get(roomId) != state) return;
+            if (state.questionTimer != null) state.questionTimer.cancel(false);
+            endGame(state, opponentId, userId);
         }
     }
 

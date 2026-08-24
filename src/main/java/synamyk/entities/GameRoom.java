@@ -43,6 +43,14 @@ public class GameRoom {
     @Column(nullable = false)
     private Integer player2Score = 0;
 
+    /** Set when the room reaches FINISHED — null for a draw. Authoritative winner (also used for forfeits, where it isn't derivable from score). */
+    @Column
+    private Long winnerId;
+
+    /** Set only if the game ended via POST /forfeit — the id of the player who conceded. */
+    @Column
+    private Long forfeitedBy;
+
     @Column
     private LocalDateTime startedAt;
 

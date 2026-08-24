@@ -21,7 +21,7 @@ import java.util.List;
 
         **GAME_STARTED** — игра началась. Содержит: player1Id, player2Id, player1Name, player2Name, player1Avatar, player2Avatar, player1Score=0, player2Score=0
         **NEXT_QUESTION** — новый вопрос. Содержит: questionIndex, totalQuestions, timeLimitSeconds, question (id, text, imageUrl, options без флага correct), player1Score, player2Score
-        **GAME_OVER** — игра завершена. Содержит: player1Score, player2Score, winnerId (null при ничьей)
+        **GAME_OVER** — игра завершена. Содержит: player1Score, player2Score, winnerId (null при ничьей), forfeitedBy (заполнено, только если игра закончилась досрочной сдачей — id того, кто сдался)
 
         Личные события приходят на /topic/game/{roomId}/answers/{userId}:
         **ANSWER_RESULT** — результат ответа конкретного игрока. Содержит: correct, player1Score, player2Score
@@ -85,6 +85,9 @@ public class GameEvent {
     // GAME_OVER
     @Schema(description = "[GAME_OVER] ID победителя (null при ничьей)", example = "42")
     private Long winnerId;
+
+    @Schema(description = "[GAME_OVER] ID игрока, который сдался (заполнено только при досрочной сдаче через POST /api/game/{roomId}/forfeit)", example = "55")
+    private Long forfeitedBy;
 
     @Schema(description = "Сообщение об ошибке (при необходимости)")
     private String message;

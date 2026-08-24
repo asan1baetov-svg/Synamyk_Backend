@@ -10,6 +10,7 @@ import java.util.List;
 
 public interface GamePlayerResultRepository extends JpaRepository<GamePlayerResult, Long> {
     List<GamePlayerResult> findByUserId(Long userId);
+    List<GamePlayerResult> findByUserIdOrderByCreatedAtDesc(Long userId);
     List<GamePlayerResult> findByGameTestId(Long gameTestId);
     Page<GamePlayerResult> findByGameTestId(Long gameTestId, Pageable pageable);
 
