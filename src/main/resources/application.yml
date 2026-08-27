@@ -50,6 +50,8 @@ sms:
 firebase:
   enabled: ${FIREBASE_ENABLED:false}
   credentials-path: ${FIREBASE_CREDENTIALS_PATH:firebase-service-account.json}
+  # Inline service-account JSON (raw or base64). Takes priority over credentials-path.
+  credentials-json: ${FIREBASE_CREDENTIALS_JSON:}
 
 anthropic:
   api-key: ${ANTHROPIC_API_KEY}

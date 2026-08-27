@@ -11,11 +11,22 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 /**
  * Initializes Firebase Cloud Messaging for admin push broadcasts.
- * Returns a null bean (instead of throwing) when disabled or misconfigured,
+ *
+ * <p>Credentials are taken from, in order:
+ * <ol>
+ *   <li>{@code FIREBASE_CREDENTIALS_JSON} — the service-account JSON inline
+ *       (raw JSON or base64-encoded). Preferred on platforms without a writable FS (Railway).</li>
+ *   <li>{@code FIREBASE_CREDENTIALS_PATH} — a resource path (classpath:/file:/plain).</li>
+ * </ol>
+ *
+ * <p>Returns a {@code null} bean (instead of throwing) when disabled or misconfigured,
  * so the app boots fine before real Firebase credentials are supplied.
  */
 @Slf4j
@@ -28,6 +39,9 @@ public class FirebaseConfig {
     @Value("${firebase.credentials-path:firebase-service-account.json}")
     private String credentialsPath;
 
+    @Value("${firebase.credentials-json:}")
+    private String credentialsJson;
+
     @Bean
     public FirebaseMessaging firebaseMessaging() {
         if (!enabled) {
@@ -35,20 +49,37 @@ public class FirebaseConfig {
             return null;
         }
         try {
-            Resource resource = new DefaultResourceLoader().getResource(credentialsPath);
-            try (InputStream in = resource.getInputStream()) {
+            try (InputStream in = openCredentials()) {
                 FirebaseOptions options = FirebaseOptions.builder()
                         .setCredentials(GoogleCredentials.fromStream(in))
                         .build();
                 FirebaseApp app = FirebaseApp.getApps().isEmpty()
                         ? FirebaseApp.initializeApp(options)
                         : FirebaseApp.getInstance();
-                log.info("Firebase initialized successfully from {}", credentialsPath);
+                log.info("Firebase initialized successfully ({})",
+                        hasInlineJson() ? "from FIREBASE_CREDENTIALS_JSON" : "from " + credentialsPath);
                 return FirebaseMessaging.getInstance(app);
             }
         } catch (Exception e) {
             log.warn("Failed to initialize Firebase (push notifications will be disabled): {}", e.getMessage());
             return null;
         }
+    }
+
+    private boolean hasInlineJson() {
+        return credentialsJson != null && !credentialsJson.isBlank();
+    }
+
+    private InputStream openCredentials() throws Exception {
+        if (hasInlineJson()) {
+            String raw = credentialsJson.trim();
+            // Accept either raw JSON or a base64-encoded blob.
+            byte[] bytes = raw.startsWith("{")
+                    ? raw.getBytes(StandardCharsets.UTF_8)
+                    : Base64.getDecoder().decode(raw.replaceAll("\\s", ""));
+            return new ByteArrayInputStream(bytes);
+        }
+        Resource resource = new DefaultResourceLoader().getResource(credentialsPath);
+        return resource.getInputStream();
     }
 }
