@@ -13,6 +13,11 @@ import synamyk.enums.GameRoomStatus;
 import synamyk.exception.AppException;
 import synamyk.repo.*;
 
+import org.springframework.data.domain.PageRequest;
+import synamyk.enums.PushCategory;
+import synamyk.enums.PushDataType;
+import synamyk.util.PushMessages;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -37,6 +42,7 @@ public class GameService {
     private final GamePlayerResultRepository gamePlayerResultRepository;
     private final UserRepository userRepository;
     private final MinioService minioService;
+    private final PushNotificationService pushNotificationService;
 
     /** gameTestId -> roomId waiting for second player */
     private final ConcurrentHashMap<Long, Long> waitingRooms = new ConcurrentHashMap<>();
@@ -269,12 +275,24 @@ public class GameService {
                 .build();
     }
 
-    public List<GameTestSummary> listActiveGameTests() {
+    public List<GameTestSummary> listActiveGameTests(Long userId, Boolean unplayedOnly) {
+        Map<Long, GamePlayerResultRepository.GameStatsView> statsByTest =
+                gamePlayerResultRepository.findMyGameStats(userId).stream()
+                        .collect(Collectors.toMap(
+                                GamePlayerResultRepository.GameStatsView::getGameTestId, v -> v));
         return gameTestRepository.findByActiveTrue().stream()
-                .map(t -> new GameTestSummary(
-                        t.getId(), t.getTitle(), t.getDescription(),
-                        t.getTimeLimitSeconds(), t.getQuestionsPerGame(),
-                        gameQuestionRepository.countByGameTestIdAndActiveTrue(t.getId())))
+                .map(t -> {
+                    GamePlayerResultRepository.GameStatsView st = statsByTest.get(t.getId());
+                    return new GameTestSummary(
+                            t.getId(), t.getTitle(), t.getDescription(),
+                            t.getTimeLimitSeconds(), t.getQuestionsPerGame(),
+                            gameQuestionRepository.countByGameTestIdAndActiveTrue(t.getId()),
+                            st != null,
+                            st != null && st.getBestScore() != null ? st.getBestScore().longValue() : null,
+                            st != null ? st.getLastPlayedAt() : null,
+                            st != null && st.getPlayCount() != null ? Math.toIntExact(st.getPlayCount()) : 0);
+                })
+                .filter(s -> !Boolean.TRUE.equals(unplayedOnly) || !s.played())
                 .collect(Collectors.toList());
     }
 
@@ -583,6 +601,11 @@ public class GameService {
     }
 
     private void saveResult(Long userId, Long gameTestId, Long roomId, int score, int total, boolean won) {
+        int prevTop = gamePlayerResultRepository.findTopScore(gameTestId);
+        Long prevLeader = gamePlayerResultRepository
+                .findTopUserIds(gameTestId, PageRequest.of(0, 1))
+                .stream().findFirst().orElse(null);
+
         GamePlayerResult result = new GamePlayerResult();
         result.setUserId(userId);
         result.setGameTestId(gameTestId);
@@ -591,6 +614,24 @@ public class GameService {
         result.setTotalQuestions(total);
         result.setWon(won);
         gamePlayerResultRepository.save(result);
+
+        // Notify the dethroned leader (real user, not a bot, not the same person).
+        if (!BOT_ID.equals(userId) && prevTop > 0 && score > prevTop
+                && prevLeader != null && !prevLeader.equals(userId) && !BOT_ID.equals(prevLeader)) {
+            gameTestRepository.findById(gameTestId).ifPresent(gt -> {
+                try {
+                    pushNotificationService.notifyUser(prevLeader, PushCategory.MARKETING,
+                            new PushMessages.Text(
+                                    "Твой рекорд побит!",
+                                    "В игре «" + gt.getTitle() + "» кто-то набрал больше очков",
+                                    "Рекордуң жеңилди!",
+                                    "«" + gt.getTitle() + "» оюнунда бирөө көбүрөөк упай алды"),
+                            PushDataType.GAME, gameTestId);
+                } catch (Exception e) {
+                    log.warn("high-score notification failed: {}", e.getMessage());
+                }
+            });
+        }
     }
 
     private String displayName(User u) {
@@ -625,5 +666,7 @@ public class GameService {
 
     public record GameTestSummary(Long id, String title, String description,
                                    Integer timeLimitSeconds, Integer questionsPerGame,
-                                   long questionCount) {}
+                                   long questionCount, boolean played,
+                                   Long myBestScore, java.time.LocalDateTime lastPlayedAt,
+                                   Integer playCount) {}
 }

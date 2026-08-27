@@ -8,8 +8,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import synamyk.dto.admin.*;
 import synamyk.entities.*;
+import synamyk.enums.PushCategory;
+import synamyk.enums.PushDataType;
 import synamyk.exception.AppException;
 import synamyk.repo.*;
+import synamyk.util.PushMessages;
 
 import java.util.List;
 
@@ -23,6 +26,8 @@ public class AdminTestService {
     private final QuestionRepository questionRepository;
     private final AnswerOptionRepository optionRepository;
     private final MinioService minioService;
+    private final UserTestAccessRepository userTestAccessRepository;
+    private final PushNotificationService pushNotificationService;
 
     // ===== TESTS =====
 
@@ -150,6 +155,15 @@ public class AdminTestService {
                 .build();
 
         subTest = subTestRepository.save(subTest);
+
+        // Notify everyone who owns the parent test that new content is available.
+        List<Long> owners = userTestAccessRepository.findUserIdsByTestId(testId);
+        if (!owners.isEmpty()) {
+            pushNotificationService.notifyUsersAsync(owners, PushCategory.MARKETING,
+                    PushMessages.newSubTest(test.getTitle(), test.getTitleKy()),
+                    PushDataType.SUB_TEST, subTest.getId());
+        }
+
         return toAdminSubTestResponse(subTest);
     }
 

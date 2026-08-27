@@ -172,6 +172,25 @@ public class TestSessionController {
         return ResponseEntity.ok(sessionService.getResult(sessionId, user.getId(), langResolver.resolve(userDetails)));
     }
 
+    @GetMapping("/sub-tests/{subTestId}/history")
+    @Operation(
+            summary = "История попыток текущего пользователя по подтесту",
+            description = "Страница попыток прохождения подтеста (включая незавершённые), от новых к старым. " +
+                    "Для детального разбора конкретной попытки используйте GET /sessions/{sessionId}/result."
+    )
+    @ApiResponse(responseCode = "200", description = "Страница попыток")
+    public ResponseEntity<org.springframework.data.domain.Page<SubTestAttemptEntry>> getAttemptHistory(
+            @Parameter(description = "ID подтеста") @PathVariable Long subTestId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        int capped = Math.min(Math.max(size, 1), 100);
+        return ResponseEntity.ok(sessionService.getAttemptHistory(
+                subTestId, user.getId(), org.springframework.data.domain.PageRequest.of(page, capped)));
+    }
+
     @PostMapping("/sessions/{sessionId}/analyze-errors")
     @Operation(
             summary = "ИИ-разбор неправильных ответов",

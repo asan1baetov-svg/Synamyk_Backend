@@ -5,7 +5,9 @@ import org.springframework.stereotype.Service;
 import synamyk.dto.SubTestResponse;
 import synamyk.dto.TestDetailResponse;
 import synamyk.dto.TestListResponse;
+import synamyk.entities.SubTest;
 import synamyk.entities.Test;
+import synamyk.entities.TestSession;
 import synamyk.repo.QuestionRepository;
 import synamyk.repo.SubTestRepository;
 import synamyk.repo.TestRepository;
@@ -26,17 +28,26 @@ public class TestService {
     private final TestSessionRepository sessionRepository;
     private final MinioService minioService;
 
-    public List<TestListResponse> getAllTests(String lang) {
+    public List<TestListResponse> getAllTests(Long userId, String lang) {
         return testRepository.findByActiveTrueOrderByCreatedAtAsc().stream()
-                .map(t -> TestListResponse.builder()
-                        .id(t.getId())
-                        .title(L10n.pick(t.getTitle(), t.getTitleKy(), lang))
-                        .description(L10n.pick(t.getDescription(), t.getDescriptionKy(), lang))
-                        .iconUrl(minioService.presign(t.getIconUrl()))
-                        .price(t.getPrice())
-                        .subTestCount(subTestRepository
-                                .findByTestIdAndActiveTrueOrderByLevelOrderAsc(t.getId()).size())
-                        .build())
+                .map(t -> {
+                    List<SubTest> subTests = subTestRepository
+                            .findByTestIdAndActiveTrueOrderByLevelOrderAsc(t.getId());
+                    int subTestCount = subTests.size();
+                    int completed = sessionRepository.findCompletedSubTestCounts(userId, t.getId()).size();
+                    int progress = subTestCount > 0 ? (completed * 100) / subTestCount : 0;
+
+                    return TestListResponse.builder()
+                            .id(t.getId())
+                            .title(L10n.pick(t.getTitle(), t.getTitleKy(), lang))
+                            .description(L10n.pick(t.getDescription(), t.getDescriptionKy(), lang))
+                            .iconUrl(minioService.presign(t.getIconUrl()))
+                            .price(t.getPrice())
+                            .subTestCount(subTestCount)
+                            .completedSubTestCount(completed)
+                            .progressPercent(progress)
+                            .build();
+                })
                 .toList();
     }
 
@@ -53,12 +64,17 @@ public class TestService {
                     long questionCount = questionRepository.countBySubTestIdAndActiveTrue(st.getId());
                     boolean subTestAccess = !st.getIsPaid() || hasAccess;
 
-                    boolean hasCompleted = !sessionRepository
-                            .findByUserIdAndSubTestIdOrderByCreatedAtDesc(userId, st.getId())
-                            .stream()
-                            .filter(s -> s.getStatus() == synamyk.entities.TestSession.SessionStatus.COMPLETED)
-                            .toList()
-                            .isEmpty();
+                    List<TestSession> sessions = sessionRepository
+                            .findByUserIdAndSubTestIdOrderByCreatedAtDesc(userId, st.getId());
+
+                    boolean hasCompleted = sessions.stream()
+                            .anyMatch(s -> s.getStatus() == TestSession.SessionStatus.COMPLETED);
+
+                    TestSession best = sessions.stream()
+                            .filter(s -> s.getStatus() == TestSession.SessionStatus.COMPLETED)
+                            .filter(s -> s.getEarnedPoints() != null)
+                            .max(java.util.Comparator.comparingInt(TestSession::getEarnedPoints))
+                            .orElse(null);
 
                     return SubTestResponse.builder()
                             .id(st.getId())
@@ -70,6 +86,9 @@ public class TestService {
                             .questionCount(questionCount)
                             .hasAccess(subTestAccess)
                             .hasCompleted(hasCompleted)
+                            .bestScore(best != null ? best.getEarnedPoints() : null)
+                            .bestSessionId(best != null ? best.getId() : null)
+                            .attemptsCount(sessions.size())
                             .build();
                 })
                 .toList();

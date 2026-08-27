@@ -14,4 +14,6 @@ public class TestListResponse {
     private String iconUrl;
     private BigDecimal price;
     private Integer subTestCount;
+    private Integer completedSubTestCount; // sub-tests the user has completed at least once
+    private Integer progressPercent;       // completedSubTestCount / subTestCount * 100
 }

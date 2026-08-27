@@ -31,6 +31,19 @@ public interface TestSessionRepository extends JpaRepository<TestSession, Long> 
 
     List<TestSession> findByUserIdAndSubTestIdOrderByCreatedAtDesc(Long userId, Long subTestId);
 
+    org.springframework.data.domain.Page<TestSession> findByUserIdAndSubTestIdOrderByCreatedAtDesc(
+            Long userId, Long subTestId, org.springframework.data.domain.Pageable pageable);
+
+    /** [subTestId, distinctCompleted] — sub-tests this user has completed at least once. */
+    @Query("SELECT s.subTest.id, COUNT(DISTINCT s.id) FROM TestSession s " +
+           "WHERE s.user.id = :userId AND s.subTest.test.id = :testId AND s.status = 'COMPLETED' " +
+           "GROUP BY s.subTest.id")
+    List<Object[]> findCompletedSubTestCounts(@Param("userId") Long userId, @Param("testId") Long testId);
+
+    /** User ids that finished at least one session on or after the cutoff. */
+    @Query("SELECT DISTINCT s.user.id FROM TestSession s WHERE s.status = 'COMPLETED' AND s.completedAt >= :from")
+    List<Long> findUserIdsWithCompletedSessionAfter(@Param("from") LocalDateTime from);
+
     /**
      * Leaderboard: for each user return their best (max) correctAnswers
      * across all completed sessions of sub-tests belonging to the given test.

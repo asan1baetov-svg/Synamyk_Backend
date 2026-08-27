@@ -43,8 +43,10 @@ public class TestController {
             @ApiResponse(responseCode = "401", description = "Не авторизован — JWT токен отсутствует или недействителен")
     })
     public ResponseEntity<List<TestListResponse>> getAllTests(
-            @AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(testService.getAllTests(langResolver.resolve(userDetails)));
+            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        return ResponseEntity.ok(testService.getAllTests(user.getId(), langResolver.resolve(userDetails)));
     }
 
     @GetMapping("/{testId}")

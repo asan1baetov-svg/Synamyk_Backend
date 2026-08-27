@@ -50,15 +50,20 @@ public class GameRoomController {
     @GetMapping("/tests")
     @Operation(
         summary = "Список доступных игровых тестов",
-        description = "Возвращает все активные тесты. Показывает только публичные поля — без вопросов и правильных ответов."
+        description = "Возвращает все активные тесты. Показывает только публичные поля — без вопросов и правильных ответов. " +
+                "Каждый элемент содержит `played` — играл ли уже текущий пользователь этот тест. " +
+                "Передайте `unplayedOnly=true`, чтобы получить только ещё не сыгранные тесты."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Список тестов",
             content = @Content(array = @ArraySchema(schema = @Schema(implementation = GameService.GameTestSummary.class)))),
         @ApiResponse(responseCode = "401", description = "Не авторизован", content = @Content)
     })
-    public ResponseEntity<List<GameService.GameTestSummary>> listTests() {
-        return ResponseEntity.ok(gameService.listActiveGameTests());
+    public ResponseEntity<List<GameService.GameTestSummary>> listTests(
+        @AuthenticationPrincipal User user,
+        @Parameter(description = "Вернуть только ещё не сыгранные тесты") @RequestParam(required = false) Boolean unplayedOnly
+    ) {
+        return ResponseEntity.ok(gameService.listActiveGameTests(user.getId(), unplayedOnly));
     }
 
     @PostMapping("/join/{gameTestId}")

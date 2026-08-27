@@ -9,7 +9,13 @@ import synamyk.entities.*;
 import synamyk.exception.AppException;
 import synamyk.repo.*;
 
+import synamyk.enums.PushCategory;
+import synamyk.enums.PushDataType;
 import synamyk.util.L10n;
+import synamyk.util.PushMessages;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -32,6 +38,7 @@ public class TestSessionService {
     private final UserRepository userRepository;
     private final ClaudeAiService claudeAiService;
     private final MinioService minioService;
+    private final PushNotificationService pushNotificationService;
 
     /**
      * Start or resume a sub-test session.
@@ -315,6 +322,33 @@ public class TestSessionService {
     }
 
     /**
+     * Current user's past attempts on a sub-test, newest first, paginated.
+     */
+    public Page<SubTestAttemptEntry> getAttemptHistory(Long subTestId, Long userId, Pageable pageable) {
+        List<Question> allQuestions = questionRepository
+                .findBySubTestIdAndActiveTrueOrderByOrderIndexAsc(subTestId);
+        long totalQuestions = allQuestions.size();
+        int totalPoints = allQuestions.stream().mapToInt(Question::getPointValue).sum();
+
+        return sessionRepository
+                .findByUserIdAndSubTestIdOrderByCreatedAtDesc(userId, subTestId, pageable)
+                .map(s -> {
+                    int earned = s.getEarnedPoints() != null ? s.getEarnedPoints() : 0;
+                    int pct = totalPoints > 0 ? (earned * 100) / totalPoints : 0;
+                    return SubTestAttemptEntry.builder()
+                            .sessionId(s.getId())
+                            .status(s.getStatus().name())
+                            .correctAnswers(s.getCorrectAnswers())
+                            .earnedPoints(earned)
+                            .totalQuestions(totalQuestions)
+                            .percentage(pct)
+                            .startedAt(s.getStartedAt())
+                            .completedAt(s.getCompletedAt())
+                            .build();
+                });
+    }
+
+    /**
      * AI analysis of selected wrong answers.
      */
     public ErrorAnalysisResponse analyzeErrors(Long sessionId, Long userId, ErrorAnalysisRequest request, String lang) {
@@ -373,6 +407,17 @@ public class TestSessionService {
                     .explanation(explanation)
                     .build());
         }
+
+        Long subTestId = session.getSubTest().getId();
+        subTestRepository.findById(subTestId).ifPresent(st -> {
+            try {
+                pushNotificationService.notifyUser(userId, PushCategory.RESULTS,
+                        PushMessages.errorAnalysisReady(st.getTitle(), st.getTitleKy()),
+                        PushDataType.SUB_TEST, subTestId);
+            } catch (Exception e) {
+                log.warn("errorAnalysisReady notification failed: {}", e.getMessage());
+            }
+        });
 
         return ErrorAnalysisResponse.builder().analyses(analyses).build();
     }
