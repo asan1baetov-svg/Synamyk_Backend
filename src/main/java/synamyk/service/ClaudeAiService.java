@@ -19,18 +19,28 @@ public class ClaudeAiService {
     private static final String MODEL = "claude-sonnet-5";
     private static final String API_VERSION = "2023-06-01";
 
+    private static final String SYSTEM_RU = """
+            Ты — репетитор, который разбирает ошибку ученика в тесте.
+            Данные о вопросе и ответах верны — не подвергай их сомнению и не проверяй их правильность.
+            Пиши только сам разбор: ничего не пиши от своего лица, не извиняйся,
+            не упоминай «разбор ответов», «данные» или «я ошибся». Обращайся к ученику на «ты».
+            Ответ: 2–4 предложения простым языком — почему верный вариант верный
+            и в чём была ошибка в выбранном варианте. Без вступлений и заключений.""";
+
+    private static final String SYSTEM_KY = """
+            Сен — окуучунун тесттеги катасын түшүндүргөн мугалимсиң.
+            Суроо жана жооптор жөнүндө маалымат туура — аны шектенбе, текшербе.
+            Өзүң жөнүндө эч нерсе жазба, кечирим сураба, «жоопторду талдоо» же «мен жаңылдым» деп жазба.
+            Окуучуга «сен» деп кайрыл. Жооп: 2–4 сүйлөм жөнөкөй тил менен —
+            туура вариант эмне үчүн туура жана тандалган вариантта эмне ката болгон. Кириш сөзсүз.""";
+
     private final AnthropicConfig config;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
     /**
      * Generates an explanation for a wrong answer using Claude API.
-     *
-     * @param questionText   the question text
-     * @param options        all answer options
-     * @param userWrong      text of the user's wrong answer
-     * @param correctAnswer  text of the correct answer
-     * @return AI-generated explanation
+     * Returns a neutral localized fallback when the API is unavailable — never an error string.
      */
     public String explainWrongAnswer(
             String questionText,
@@ -39,12 +49,15 @@ public class ClaudeAiService {
             String correctAnswer,
             String lang
     ) {
-        String prompt = buildPrompt(questionText, options, userWrong, correctAnswer, lang);
+        boolean ky = "KY".equalsIgnoreCase(lang);
+        String prompt = buildPrompt(questionText, options, userWrong, correctAnswer, ky);
 
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", MODEL,
                     "max_tokens", 1024,
+                    "temperature", 0.3,
+                    "system", ky ? SYSTEM_KY : SYSTEM_RU,
                     "messages", List.of(
                             Map.of("role", "user", "content", prompt)
                     )
@@ -66,41 +79,50 @@ public class ClaudeAiService {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
-                if (content != null && !content.isEmpty()) {
-                    return (String) content.get(0).get("text");
+                if (content != null) {
+                    String text = content.stream()
+                            .filter(b -> "text".equals(b.get("type")))
+                            .map(b -> (String) b.get("text"))
+                            .filter(t -> t != null && !t.isBlank())
+                            .findFirst()
+                            .orElse(null);
+                    if (text != null) return text.trim();
                 }
             }
 
-            return "Не удалось получить объяснение.";
+            log.warn("Claude API returned no usable content: status={}", response.getStatusCode());
+            return fallback(ky);
 
         } catch (Exception e) {
             log.error("Error calling Claude API: {}", e.getMessage());
-            return "Не удалось получить объяснение: " + e.getMessage();
+            return fallback(ky);
         }
     }
 
-    private String buildPrompt(String questionText, List<String> options, String userWrong, String correctAnswer, String lang) {
-        boolean ky = "KY".equalsIgnoreCase(lang);
+    private String fallback(boolean ky) {
+        return ky
+                ? "Түшүндүрмө учурда жеткиликсиз. Кийинчерээк кайра аракет кыл."
+                : "Объяснение сейчас недоступно. Попробуй позже.";
+    }
+
+    private String buildPrompt(String questionText, List<String> options, String userWrong, String correctAnswer, boolean ky) {
+        boolean noChoice = userWrong == null || userWrong.isBlank() || "—".equals(userWrong.trim());
         StringBuilder sb = new StringBuilder();
 
         if (ky) {
-            sb.append("Сен экзаменге даярдануу үчүн жардамчысың. Колдонуучуга \"сен\" деп кайрыл.\n\n");
             sb.append("Суроо: ").append(questionText).append("\n\n");
             sb.append("Жооп варианттары:\n");
             for (String opt : options) sb.append("- ").append(opt).append("\n");
-            sb.append("\nСенин жообуң (туура эмес): ").append(userWrong).append("\n");
-            sb.append("Туура жооп: ").append(correctAnswer).append("\n\n");
-            sb.append("Кыргыз тилинде, \"сен\" деп кайрылып, 2-4 сүйлөм менен түшүндүр: ");
-            sb.append("туура жооп эмне үчүн туура, сен эмне жерде жаңылдың.");
+            sb.append("\nОкуучу тандаган (туура эмес): ")
+              .append(noChoice ? "эч бир вариант тандалган жок" : userWrong).append("\n");
+            sb.append("Туура жооп: ").append(correctAnswer.isBlank() ? "белгиленген жок" : correctAnswer).append("\n");
         } else {
-            sb.append("Ты помощник для подготовки к экзаменам. Обращайся к пользователю на \"ты\".\n\n");
             sb.append("Вопрос: ").append(questionText).append("\n\n");
             sb.append("Варианты ответов:\n");
             for (String opt : options) sb.append("- ").append(opt).append("\n");
-            sb.append("\nТвой ответ (неправильный): ").append(userWrong).append("\n");
-            sb.append("Правильный ответ: ").append(correctAnswer).append("\n\n");
-            sb.append("Объясни на русском языке, обращаясь на \"ты\", 2-4 предложения: ");
-            sb.append("почему правильный ответ верный и где именно ты ошибся.");
+            sb.append("\nВыбор ученика (неверный): ")
+              .append(noChoice ? "вариант не выбран" : userWrong).append("\n");
+            sb.append("Правильный ответ: ").append(correctAnswer.isBlank() ? "не указан" : correctAnswer).append("\n");
         }
 
         return sb.toString();
