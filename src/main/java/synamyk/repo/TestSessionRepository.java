@@ -155,8 +155,8 @@ public interface TestSessionRepository extends JpaRepository<TestSession, Long> 
     @Query("SELECT s.user.id, s.user.firstName, s.user.lastName, s.user.phone, SUM(s.earnedPoints)"
             + " FROM TestSession s"
             + " WHERE s.status = 'COMPLETED'"
-            + " AND (:from IS NULL OR s.completedAt >= :from)"
-            + " AND (:to IS NULL OR s.completedAt <= :to)"
+            + " AND (s.completedAt >= COALESCE(:from, s.completedAt))"
+            + " AND (s.completedAt <= COALESCE(:to, s.completedAt))"
             + " GROUP BY s.user.id, s.user.firstName, s.user.lastName, s.user.phone"
             + " ORDER BY SUM(s.earnedPoints) DESC")
     List<Object[]> findGlobalRanking(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);

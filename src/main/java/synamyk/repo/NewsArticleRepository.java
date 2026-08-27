@@ -19,19 +19,19 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             + " WHERE (:search IS NULL OR :search = ''"
             + "   OR LOWER(n.title) LIKE LOWER(CONCAT('%',:search,'%'))"
             + "   OR LOWER(n.content) LIKE LOWER(CONCAT('%',:search,'%')))"
-            + " AND (:type IS NULL OR :type = '' OR n.type = :type)"
-            + " AND (:active IS NULL OR n.active = :active)"
-            + " AND (:dateFrom IS NULL OR n.publishedAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR n.publishedAt <= :dateTo)"
+            + " AND (n.type = COALESCE(NULLIF(:type, ''), n.type))"
+            + " AND (n.active = COALESCE(:active, n.active))"
+            + " AND (n.publishedAt >= COALESCE(:dateFrom, n.publishedAt))"
+            + " AND (n.publishedAt <= COALESCE(:dateTo, n.publishedAt))"
             + " ORDER BY n.publishedAt DESC",
             countQuery = "SELECT COUNT(n) FROM NewsArticle n"
             + " WHERE (:search IS NULL OR :search = ''"
             + "   OR LOWER(n.title) LIKE LOWER(CONCAT('%',:search,'%'))"
             + "   OR LOWER(n.content) LIKE LOWER(CONCAT('%',:search,'%')))"
-            + " AND (:type IS NULL OR :type = '' OR n.type = :type)"
-            + " AND (:active IS NULL OR n.active = :active)"
-            + " AND (:dateFrom IS NULL OR n.publishedAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR n.publishedAt <= :dateTo)")
+            + " AND (n.type = COALESCE(NULLIF(:type, ''), n.type))"
+            + " AND (n.active = COALESCE(:active, n.active))"
+            + " AND (n.publishedAt >= COALESCE(:dateFrom, n.publishedAt))"
+            + " AND (n.publishedAt <= COALESCE(:dateTo, n.publishedAt))")
     Page<NewsArticle> findAllByFilters(
             @Param("search") String search,
             @Param("type") String type,

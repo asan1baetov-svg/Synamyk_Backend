@@ -32,9 +32,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
                                 Pageable pageable);
 
     @Query(value = "SELECT p FROM Payment p JOIN FETCH p.user u JOIN FETCH p.test t"
-            + " WHERE (:status IS NULL OR p.status = :status)"
-            + " AND (:dateFrom IS NULL OR p.createdAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR p.createdAt <= :dateTo)"
+            + " WHERE (p.status = COALESCE(:status, p.status))"
+            + " AND (p.createdAt >= COALESCE(:dateFrom, p.createdAt))"
+            + " AND (p.createdAt <= COALESCE(:dateTo, p.createdAt))"
             + " AND (:search IS NULL OR :search = ''"
             + "   OR CAST(p.id AS string) LIKE %:search%"
             + "   OR p.transactionId LIKE %:search%"
@@ -42,9 +42,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             + "   OR LOWER(CONCAT(COALESCE(u.firstName,''),' ',COALESCE(u.lastName,''))) LIKE LOWER(CONCAT('%',:search,'%')))"
             + " ORDER BY p.createdAt DESC",
             countQuery = "SELECT COUNT(p) FROM Payment p JOIN p.user u"
-            + " WHERE (:status IS NULL OR p.status = :status)"
-            + " AND (:dateFrom IS NULL OR p.createdAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR p.createdAt <= :dateTo)"
+            + " WHERE (p.status = COALESCE(:status, p.status))"
+            + " AND (p.createdAt >= COALESCE(:dateFrom, p.createdAt))"
+            + " AND (p.createdAt <= COALESCE(:dateTo, p.createdAt))"
             + " AND (:search IS NULL OR :search = ''"
             + "   OR CAST(p.id AS string) LIKE %:search%"
             + "   OR p.transactionId LIKE %:search%"
@@ -99,9 +99,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Object[]> revenueByMonth(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
     @Query("SELECT p FROM Payment p JOIN FETCH p.user u JOIN FETCH p.test t"
-            + " WHERE (:status IS NULL OR p.status = :status)"
-            + " AND (:dateFrom IS NULL OR p.createdAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR p.createdAt <= :dateTo)"
+            + " WHERE (p.status = COALESCE(:status, p.status))"
+            + " AND (p.createdAt >= COALESCE(:dateFrom, p.createdAt))"
+            + " AND (p.createdAt <= COALESCE(:dateTo, p.createdAt))"
             + " AND (:search IS NULL OR :search = ''"
             + "   OR CAST(p.id AS string) LIKE %:search%"
             + "   OR p.transactionId LIKE %:search%"

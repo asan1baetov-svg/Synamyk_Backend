@@ -23,20 +23,20 @@ public interface UserRepository extends JpaRepository<User, Long> {
             + "   OR u.phone LIKE %:search%"
             + "   OR LOWER(COALESCE(u.email,'')) LIKE LOWER(CONCAT('%',:search,'%'))"
             + "   OR LOWER(CONCAT(COALESCE(u.firstName,''),' ',COALESCE(u.lastName,''))) LIKE LOWER(CONCAT('%',:search,'%')))"
-            + " AND (:active IS NULL OR u.active = :active)"
-            + " AND (:role IS NULL OR u.role = :role)"
-            + " AND (:dateFrom IS NULL OR u.createdAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR u.createdAt <= :dateTo)"
+            + " AND (u.active = COALESCE(:active, u.active))"
+            + " AND (u.role = COALESCE(:role, u.role))"
+            + " AND (u.createdAt >= COALESCE(:dateFrom, u.createdAt))"
+            + " AND (u.createdAt <= COALESCE(:dateTo, u.createdAt))"
             + " ORDER BY u.createdAt DESC",
             countQuery = "SELECT COUNT(u) FROM User u"
             + " WHERE (:search IS NULL OR :search = ''"
             + "   OR u.phone LIKE %:search%"
             + "   OR LOWER(COALESCE(u.email,'')) LIKE LOWER(CONCAT('%',:search,'%'))"
             + "   OR LOWER(CONCAT(COALESCE(u.firstName,''),' ',COALESCE(u.lastName,''))) LIKE LOWER(CONCAT('%',:search,'%')))"
-            + " AND (:active IS NULL OR u.active = :active)"
-            + " AND (:role IS NULL OR u.role = :role)"
-            + " AND (:dateFrom IS NULL OR u.createdAt >= :dateFrom)"
-            + " AND (:dateTo IS NULL OR u.createdAt <= :dateTo)")
+            + " AND (u.active = COALESCE(:active, u.active))"
+            + " AND (u.role = COALESCE(:role, u.role))"
+            + " AND (u.createdAt >= COALESCE(:dateFrom, u.createdAt))"
+            + " AND (u.createdAt <= COALESCE(:dateTo, u.createdAt))")
     Page<User> findAllByFilters(
             @Param("search") String search,
             @Param("active") Boolean active,
