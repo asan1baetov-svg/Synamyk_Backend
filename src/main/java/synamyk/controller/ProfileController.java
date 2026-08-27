@@ -8,10 +8,12 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import synamyk.dto.*;
 import synamyk.repo.UserRepository;
 import synamyk.service.ProfileService;
@@ -51,6 +53,31 @@ public class ProfileController {
             @AuthenticationPrincipal UserDetails userDetails,
             @RequestBody UpdateProfileRequest request) {
         return ResponseEntity.ok(profileService.updateProfile(resolveUserId(userDetails), request));
+    }
+
+    @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(
+            summary = "Загрузить / сменить аватар",
+            description = "Один запрос: multipart-поле `file` (изображение до 10 МБ). Загружает файл, " +
+                    "делает его аватаром текущего пользователя, удаляет предыдущий. " +
+                    "Возвращает обновлённый профиль с presigned `avatarUrl` (действителен 1 час)."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Аватар обновлён"),
+            @ApiResponse(responseCode = "400", description = "Файл пустой, не изображение или больше 10 МБ"),
+            @ApiResponse(responseCode = "401", description = "Не авторизован")
+    })
+    public ResponseEntity<ProfileResponse> uploadAvatar(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestPart("file") MultipartFile file) {
+        return ResponseEntity.ok(profileService.updateAvatar(resolveUserId(userDetails), file));
+    }
+
+    @DeleteMapping("/avatar")
+    @Operation(summary = "Удалить аватар", description = "Сбрасывает `avatarUrl` в null и удаляет файл из хранилища.")
+    @ApiResponse(responseCode = "200", description = "Аватар удалён")
+    public ResponseEntity<ProfileResponse> deleteAvatar(@AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(profileService.deleteAvatar(resolveUserId(userDetails)));
     }
 
     @PostMapping("/change-phone/request")

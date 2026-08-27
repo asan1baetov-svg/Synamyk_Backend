@@ -5,10 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import synamyk.dto.*;
 import synamyk.entities.OTPCode;
 import synamyk.entities.Region;
 import synamyk.entities.User;
+import synamyk.enums.MediaFileType;
 import synamyk.exception.AppException;
 import synamyk.repo.OtpCodeRepository;
 import synamyk.repo.RegionRepository;
@@ -61,6 +63,43 @@ public class ProfileService {
         if (request.getAvatarUrl() != null) user.setAvatarUrl(minioService.extractKey(request.getAvatarUrl()));
         userRepository.save(user);
         return getProfile(userId);
+    }
+
+    /**
+     * One-call avatar upload: stores the image, points the profile at it and
+     * removes the previously stored file. Returns the refreshed profile.
+     */
+    @Transactional
+    public ProfileResponse updateAvatar(Long userId, MultipartFile file) {
+        User user = findUser(userId);
+        String oldKey = user.getAvatarUrl();
+
+        String newKey = minioService.upload(file, MediaFileType.AVATAR, String.valueOf(userId));
+        user.setAvatarUrl(newKey);
+        userRepository.save(user);
+
+        deleteQuietly(oldKey);
+        return getProfile(userId);
+    }
+
+    @Transactional
+    public ProfileResponse deleteAvatar(Long userId) {
+        User user = findUser(userId);
+        String oldKey = user.getAvatarUrl();
+        user.setAvatarUrl(null);
+        userRepository.save(user);
+
+        deleteQuietly(oldKey);
+        return getProfile(userId);
+    }
+
+    private void deleteQuietly(String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) return;
+        try {
+            minioService.delete(objectKey);
+        } catch (Exception e) {
+            log.warn("Failed to delete old avatar {}: {}", objectKey, e.getMessage());
+        }
     }
 
     /**

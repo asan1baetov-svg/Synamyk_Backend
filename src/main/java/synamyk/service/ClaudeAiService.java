@@ -16,7 +16,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ClaudeAiService {
 
-    private static final String MODEL = "claude-opus-4-6";
+    private static final String MODEL = "claude-sonnet-5";
     private static final String API_VERSION = "2023-06-01";
 
     private final AnthropicConfig config;

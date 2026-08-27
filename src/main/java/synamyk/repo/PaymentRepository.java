@@ -21,6 +21,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     boolean existsByUserIdAndTestIdAndStatus(Long userId, Long testId, Payment.PaymentStatus status);
     List<Payment> findByUserIdOrderByCreatedAtDesc(Long userId);
 
+    @Query(value = "SELECT p FROM Payment p JOIN FETCH p.test t WHERE p.user.id = :userId ORDER BY p.createdAt DESC",
+            countQuery = "SELECT COUNT(p) FROM Payment p WHERE p.user.id = :userId")
+    Page<Payment> findMyPayments(@Param("userId") Long userId, Pageable pageable);
+
     @Query(value = "SELECT p FROM Payment p JOIN FETCH p.user u JOIN FETCH p.test t"
             + " WHERE (:status IS NULL OR p.status = :status)"
             + " AND (:dateFrom IS NULL OR p.createdAt >= :dateFrom)"

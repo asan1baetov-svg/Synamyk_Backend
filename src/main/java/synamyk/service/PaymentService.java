@@ -4,9 +4,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import synamyk.dto.CreatePaymentResponse;
 import synamyk.dto.InitPaymentResponse;
+import synamyk.dto.PaymentHistoryEntry;
 import synamyk.dto.WebhookData;
+import synamyk.util.L10n;
 import synamyk.entities.Payment;
 import synamyk.entities.Test;
 import synamyk.entities.User;
@@ -42,6 +46,22 @@ public class PaymentService {
      *   - pass paymentId in `requiredFields` as a hidden field so it comes back in webhook fields
      *   - pass callbackUrl as `callbackUrl`
      */
+    /** Current user's payment history, newest first. */
+    @Transactional(readOnly = true)
+    public Page<PaymentHistoryEntry> getMyPayments(Long userId, String lang, Pageable pageable) {
+        return paymentRepository.findMyPayments(userId, pageable)
+                .map(p -> new PaymentHistoryEntry(
+                        p.getPaymentId(),
+                        p.getTest().getId(),
+                        L10n.pick(p.getTest().getTitle(), p.getTest().getTitleKy(), lang),
+                        p.getAmount(),
+                        p.getStatus().name(),
+                        p.getReceiptNumber(),
+                        p.getPaymentUrl(),
+                        p.getCreatedAt(),
+                        p.getPaidAt()));
+    }
+
     @Transactional
     public InitPaymentResponse initPayment(Long userId, Long testId) {
         User user = userRepository.findById(userId)

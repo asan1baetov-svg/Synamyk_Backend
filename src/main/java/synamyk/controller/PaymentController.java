@@ -5,11 +5,14 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import synamyk.dto.CreatePaymentResponse;
 import synamyk.dto.InitPaymentResponse;
+import synamyk.dto.PaymentHistoryEntry;
 import synamyk.entities.User;
 import synamyk.service.PaymentService;
 
@@ -47,6 +50,21 @@ public class PaymentController {
             Authentication authentication) {
         User user = (User) authentication.getPrincipal();
         return ResponseEntity.ok(paymentService.initPayment(user.getId(), testId));
+    }
+
+    @GetMapping("/my")
+    @Operation(
+            summary = "История платежей текущего пользователя",
+            description = "Страница платежей, от новых к старым. Статусы: PENDING, COMPLETED, EXPIRED, CANCELLED. " +
+                    "Название теста локализовано по языку пользователя.")
+    public ResponseEntity<Page<PaymentHistoryEntry>> myPayments(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        int capped = Math.min(Math.max(size, 1), 100);
+        return ResponseEntity.ok(paymentService.getMyPayments(
+                user.getId(), user.getLanguage(), PageRequest.of(page, capped)));
     }
 
     @GetMapping("/{paymentId}/status")
