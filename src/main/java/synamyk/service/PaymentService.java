@@ -46,10 +46,10 @@ public class PaymentService {
      *   - pass paymentId in `requiredFields` as a hidden field so it comes back in webhook fields
      *   - pass callbackUrl as `callbackUrl`
      */
-    /** Current user's payment history, newest first. */
+    /** Current user's payment history, newest first. PENDING (abandoned) attempts are hidden. */
     @Transactional(readOnly = true)
     public Page<PaymentHistoryEntry> getMyPayments(Long userId, String lang, Pageable pageable) {
-        return paymentRepository.findMyPayments(userId, pageable)
+        return paymentRepository.findMyPayments(userId, Payment.PaymentStatus.PENDING, pageable)
                 .map(p -> new PaymentHistoryEntry(
                         p.getPaymentId(),
                         p.getTest().getId(),
