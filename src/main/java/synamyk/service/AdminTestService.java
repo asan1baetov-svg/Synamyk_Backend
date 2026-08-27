@@ -157,7 +157,7 @@ public class AdminTestService {
         subTest = subTestRepository.save(subTest);
 
         // Notify everyone who owns the parent test that new content is available.
-        List<Long> owners = userTestAccessRepository.findUserIdsByTestId(testId);
+        List<Long> owners = userTestAccessRepository.findActiveUserIdsByTestId(testId, java.time.LocalDateTime.now());
         if (!owners.isEmpty()) {
             pushNotificationService.notifyUsersAsync(owners, PushCategory.MARKETING,
                     PushMessages.newSubTest(test.getTitle(), test.getTitleKy()),

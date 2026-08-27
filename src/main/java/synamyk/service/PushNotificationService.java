@@ -397,7 +397,8 @@ public class PushNotificationService {
             case USER_IDS -> parseCsvLongs(ref);
             case PLATFORM -> deviceTokenRepository.findDistinctUserIdsByPlatform(
                     DevicePlatform.valueOf(ref.trim().toUpperCase()));
-            case PURCHASED_TEST -> userTestAccessRepository.findUserIdsByTestId(Long.parseLong(ref.trim()));
+            case PURCHASED_TEST -> userTestAccessRepository.findActiveUserIdsByTestId(
+                    Long.parseLong(ref.trim()), LocalDateTime.now());
             case INACTIVE_DAYS -> {
                 int days = Integer.parseInt(ref.trim());
                 LocalDateTime cutoff = LocalDateTime.now().minusDays(days);

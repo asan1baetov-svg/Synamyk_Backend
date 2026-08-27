@@ -70,6 +70,34 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.status = :status AND p.paidAt >= :from")
     long countCompletedAfter(@Param("from") LocalDateTime from, @Param("status") Payment.PaymentStatus status);
 
+    // ===== ADMIN REPORTS =====
+
+    /** [status, count, sumAmount] for payments created in [from, to). */
+    @Query("SELECT p.status, COUNT(p), COALESCE(SUM(p.amount), 0) FROM Payment p " +
+           "WHERE p.createdAt >= :from AND p.createdAt < :to GROUP BY p.status")
+    List<Object[]> totalsByStatusBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** [testId, testTitle, count, revenue] for COMPLETED payments paid in [from, to). */
+    @Query("SELECT p.test.id, p.test.title, COUNT(p), COALESCE(SUM(p.amount), 0) FROM Payment p " +
+           "WHERE p.status = :status AND p.paidAt >= :from AND p.paidAt < :to " +
+           "GROUP BY p.test.id, p.test.title ORDER BY SUM(p.amount) DESC")
+    List<Object[]> revenueByTestBetween(@Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to,
+                                        @Param("status") Payment.PaymentStatus status);
+
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
+           "WHERE p.status = :status AND p.paidAt >= :from AND p.paidAt < :to")
+    java.math.BigDecimal revenueBetween(@Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to,
+                                        @Param("status") Payment.PaymentStatus status);
+
+    /** [yyyy-MM, count, revenue] for COMPLETED payments by paid month. */
+    @Query(value = "SELECT to_char(date_trunc('month', paid_at), 'YYYY-MM') AS ym, " +
+           "COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS revenue " +
+           "FROM payments WHERE status = 'COMPLETED' AND paid_at >= :from AND paid_at < :to " +
+           "GROUP BY 1 ORDER BY 1", nativeQuery = true)
+    List<Object[]> revenueByMonth(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     @Query("SELECT p FROM Payment p JOIN FETCH p.user u JOIN FETCH p.test t"
             + " WHERE (:status IS NULL OR p.status = :status)"
             + " AND (:dateFrom IS NULL OR p.createdAt >= :dateFrom)"

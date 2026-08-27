@@ -55,7 +55,7 @@ public class TestService {
         Test test = testRepository.findById(testId)
                 .orElseThrow(() -> new RuntimeException("Test not found"));
 
-        boolean hasAccess = accessRepository.existsByUserIdAndTestId(userId, testId);
+        boolean hasAccess = accessRepository.existsActiveAccess(userId, testId, java.time.LocalDateTime.now());
 
         List<SubTestResponse> subTests = subTestRepository
                 .findByTestIdAndActiveTrueOrderByLevelOrderAsc(testId)

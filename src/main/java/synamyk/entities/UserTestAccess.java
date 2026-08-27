@@ -31,4 +31,8 @@ public class UserTestAccess extends BaseEntity {
 
     @Column(nullable = false)
     private LocalDateTime grantedAt;
+
+    /** When the access expires. {@code null} = permanent (e.g. a purchase). */
+    @Column
+    private LocalDateTime expiresAt;
 }

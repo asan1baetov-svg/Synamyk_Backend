@@ -51,7 +51,8 @@ public class TestSessionService {
                 .orElseThrow(() -> new AppException("Подтест не найден.", "Подтест табылган жок."));
 
         // Check access
-        if (subTest.getIsPaid() && !accessRepository.existsByUserIdAndTestId(userId, subTest.getTest().getId())) {
+        if (subTest.getIsPaid() && !accessRepository.existsActiveAccess(
+                userId, subTest.getTest().getId(), LocalDateTime.now())) {
             log.warn("Access denied: userId={}, subTestId={} — paid subtest, no access granted", userId, subTestId);
             throw new AppException(
                     "Нет доступа. Пожалуйста, приобретите тест.",

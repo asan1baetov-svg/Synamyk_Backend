@@ -10,6 +10,7 @@ import synamyk.entities.User;
 import synamyk.enums.Role;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -49,4 +50,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("SELECT COUNT(DISTINCT ts.user.id) FROM TestSession ts WHERE ts.createdAt >= :from")
     long countActiveUsersAfter(@Param("from") LocalDateTime from);
+
+    @Query("SELECT COUNT(u) FROM User u WHERE u.createdAt >= :from AND u.createdAt < :to")
+    long countRegisteredBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("SELECT COUNT(DISTINCT ts.user.id) FROM TestSession ts " +
+           "WHERE ts.createdAt >= :from AND ts.createdAt < :to")
+    long countActiveUsersBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** [yyyy-MM, count] of registrations by month. */
+    @Query(value = "SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS ym, COUNT(*) AS cnt " +
+           "FROM users WHERE created_at >= :from AND created_at < :to GROUP BY 1 ORDER BY 1", nativeQuery = true)
+    List<Object[]> registrationsByMonth(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

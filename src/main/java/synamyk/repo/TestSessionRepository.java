@@ -44,6 +44,47 @@ public interface TestSessionRepository extends JpaRepository<TestSession, Long> 
     @Query("SELECT DISTINCT s.user.id FROM TestSession s WHERE s.status = 'COMPLETED' AND s.completedAt >= :from")
     List<Long> findUserIdsWithCompletedSessionAfter(@Param("from") LocalDateTime from);
 
+    // ===== ADMIN REPORTS =====
+
+    /** Live: users currently taking a test (IN_PROGRESS, timer not expired), newest first. */
+    @Query("SELECT s FROM TestSession s JOIN FETCH s.user u JOIN FETCH s.subTest st JOIN FETCH st.test t " +
+           "WHERE s.status = 'IN_PROGRESS' AND s.expiresAt > :now ORDER BY s.startedAt DESC")
+    List<TestSession> findActiveSessions(@Param("now") LocalDateTime now);
+
+    /**
+     * Per sub-test activity in [from, to) by start time:
+     * [testId, testTitle, subTestId, subTestTitle, attempts, completed, distinctUsers, avgEarnedPointsOfCompleted]
+     */
+    @Query("SELECT st.test.id, st.test.title, st.id, st.title, " +
+           "COUNT(s), " +
+           "SUM(CASE WHEN s.status = 'COMPLETED' THEN 1 ELSE 0 END), " +
+           "COUNT(DISTINCT s.user.id), " +
+           "AVG(CASE WHEN s.status = 'COMPLETED' THEN s.earnedPoints ELSE NULL END) " +
+           "FROM TestSession s JOIN s.subTest st " +
+           "WHERE s.startedAt >= :from AND s.startedAt < :to " +
+           "GROUP BY st.test.id, st.test.title, st.id, st.title " +
+           "ORDER BY st.test.id, st.id")
+    List<Object[]> reportBySubTest(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** [subTestId, questionCount, totalPoints] for active questions. */
+    @Query("SELECT q.subTest.id, COUNT(q), COALESCE(SUM(q.pointValue), 0) " +
+           "FROM Question q WHERE q.active = true GROUP BY q.subTest.id")
+    List<Object[]> questionStatsBySubTest();
+
+    long countByStartedAtGreaterThanEqualAndStartedAtLessThan(LocalDateTime from, LocalDateTime to);
+
+    @Query("SELECT COUNT(s) FROM TestSession s WHERE s.status = 'COMPLETED' " +
+           "AND s.completedAt >= :from AND s.completedAt < :to")
+    long countCompletedBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** [yyyy-MM, sessionsStarted, sessionsCompleted] by start month. */
+    @Query(value = "SELECT to_char(date_trunc('month', started_at), 'YYYY-MM') AS ym, " +
+           "COUNT(*) AS started, " +
+           "SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed " +
+           "FROM test_sessions WHERE started_at >= :from AND started_at < :to " +
+           "GROUP BY 1 ORDER BY 1", nativeQuery = true)
+    List<Object[]> sessionsByMonth(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     /**
      * Leaderboard: for each user return their best (max) correctAnswers
      * across all completed sessions of sub-tests belonging to the given test.

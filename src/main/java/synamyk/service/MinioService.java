@@ -82,6 +82,14 @@ public class MinioService {
      */
     public String presign(String keyOrUrl) {
         if (keyOrUrl == null || keyOrUrl.isBlank()) return null;
+
+        // Pass through absolute external URLs that don't point at our bucket
+        // (e.g. an image URL pasted directly in the admin panel).
+        boolean absolute = keyOrUrl.startsWith("http://") || keyOrUrl.startsWith("https://");
+        if (absolute && !keyOrUrl.contains("/" + bucket + "/")) {
+            return keyOrUrl;
+        }
+
         String objectKey = extractObjectKey(keyOrUrl);
         try {
             return minioClient.getPresignedObjectUrl(

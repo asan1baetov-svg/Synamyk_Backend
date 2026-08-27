@@ -70,12 +70,8 @@ public class PaymentService {
         Test test = testRepository.findById(testId)
                 .orElseThrow(() -> new RuntimeException("Test not found"));
 
-        if (accessRepository.existsByUserIdAndTestId(userId, testId)) {
+        if (accessRepository.existsActiveAccess(userId, testId, LocalDateTime.now())) {
             throw new RuntimeException("Test already purchased.");
-        }
-
-        if (paymentRepository.existsByUserIdAndTestIdAndStatus(userId, testId, Payment.PaymentStatus.COMPLETED)) {
-            throw new RuntimeException("Test already paid.");
         }
 
         UUID paymentId = UUID.randomUUID();
@@ -162,19 +158,13 @@ public class PaymentService {
 
     @Transactional
     protected void grantTestAccess(User user, Test test) {
-        if (accessRepository.existsByUserIdAndTestId(user.getId(), test.getId())) {
-            log.info("Access already exists: userId={}, testId={}", user.getId(), test.getId());
-            return;
-        }
-
-        UserTestAccess access = UserTestAccess.builder()
-                .user(user)
-                .test(test)
-                .grantedAt(LocalDateTime.now())
-                .build();
+        UserTestAccess access = accessRepository.findByUserIdAndTestId(user.getId(), test.getId())
+                .orElseGet(() -> UserTestAccess.builder().user(user).test(test).build());
+        access.setGrantedAt(LocalDateTime.now());
+        access.setExpiresAt(null); // a purchase grants permanent access
         accessRepository.save(access);
 
-        log.info("Test access granted: userId={}, testId={}", user.getId(), test.getId());
+        log.info("Test access granted (permanent): userId={}, testId={}", user.getId(), test.getId());
     }
 
     public CreatePaymentResponse getPaymentStatus(UUID paymentId, Long userId) {
