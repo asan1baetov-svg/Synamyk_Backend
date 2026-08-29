@@ -5,6 +5,7 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,11 +41,20 @@ public class Test extends BaseEntity {
     private String subject;
 
     /**
-     * Price to unlock all paid sub-tests of this test.
+     * Bundle price: a single purchase unlocks every paid sub-test of this test.
+     * Independent of each sub-test's own {@code price}.
      */
     @Column(nullable = false, precision = 10, scale = 2)
     @Builder.Default
     private BigDecimal price = BigDecimal.ZERO;
+
+    /** Start of the "free for everyone" window; {@code null} = open-ended start. */
+    @Column
+    private LocalDateTime freeFrom;
+
+    /** End of the "free for everyone" window; {@code null} = open-ended end. */
+    @Column
+    private LocalDateTime freeUntil;
 
     @Column(nullable = false)
     @Builder.Default

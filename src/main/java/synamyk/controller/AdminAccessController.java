@@ -44,26 +44,31 @@ public class AdminAccessController {
     }
 
     @DeleteMapping
-    @Operation(summary = "Отозвать доступ", description = "Полностью удаляет запись доступа пользователя к тесту.")
+    @Operation(summary = "Отозвать доступ",
+            description = "Полностью удаляет запись доступа. Передайте ровно один из `testId` / `subTestId`.")
     @ApiResponse(responseCode = "200", description = "Доступ отозван (или его не было)")
     public ResponseEntity<Void> revoke(
             @Parameter(description = "ID пользователя") @RequestParam Long userId,
-            @Parameter(description = "ID теста") @RequestParam Long testId) {
-        adminAccessService.revoke(userId, testId);
+            @Parameter(description = "ID теста") @RequestParam(required = false) Long testId,
+            @Parameter(description = "ID подтеста") @RequestParam(required = false) Long subTestId) {
+        adminAccessService.revoke(userId, testId, subTestId);
         return ResponseEntity.ok().build();
     }
 
     @GetMapping
     @Operation(
             summary = "Список доступов",
-            description = "Передайте `userId` — доступы пользователя, либо `testId` — все, у кого есть доступ к тесту. "
+            description = "Передайте `userId` — доступы пользователя (тесты + подтесты), "
+                    + "`testId` — все, у кого есть доступ к тесту, либо `subTestId` — все, у кого есть доступ к подтесту. "
                     + "Поле `status`: PERMANENT | ACTIVE | EXPIRED."
     )
     public ResponseEntity<List<AccessGrantResponse>> list(
             @RequestParam(required = false) Long userId,
-            @RequestParam(required = false) Long testId) {
+            @RequestParam(required = false) Long testId,
+            @RequestParam(required = false) Long subTestId) {
         if (userId != null) return ResponseEntity.ok(adminAccessService.listByUser(userId));
         if (testId != null) return ResponseEntity.ok(adminAccessService.listByTest(testId));
-        throw new AppException("Укажите userId или testId.", "userId же testId көрсөтүңүз.");
+        if (subTestId != null) return ResponseEntity.ok(adminAccessService.listBySubTest(subTestId));
+        throw new AppException("Укажите userId, testId или subTestId.", "userId, testId же subTestId көрсөтүңүз.");
     }
 }

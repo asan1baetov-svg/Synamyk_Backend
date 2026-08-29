@@ -95,6 +95,18 @@ public class AdminTestController {
         return ResponseEntity.ok(adminTestService.updateTestPricing(testId, request));
     }
 
+    @PatchMapping("/tests/{testId}/schedule")
+    @Operation(
+            summary = "Расписание платности теста",
+            description = "Окно бесплатности всего теста. В это окно тест бесплатен для всех пользователей. "
+                    + "`{ \"freeFrom\": null, \"freeUntil\": null }` — очистить окно. Время — Asia/Bishkek."
+    )
+    public ResponseEntity<AdminTestResponse> updateTestSchedule(
+            @Parameter(description = "ID теста") @PathVariable Long testId,
+            @Valid @RequestBody ScheduleRequest request) {
+        return ResponseEntity.ok(adminTestService.updateTestSchedule(testId, request));
+    }
+
     // ===== ПОДТЕСТЫ =====
 
     @PostMapping("/tests/{testId}/sub-tests")
@@ -116,6 +128,18 @@ public class AdminTestController {
             @Parameter(description = "ID подтеста") @PathVariable Long subTestId,
             @Valid @RequestBody CreateSubTestRequest request) {
         return ResponseEntity.ok(adminTestService.updateSubTest(subTestId, request));
+    }
+
+    @PatchMapping("/sub-tests/{subTestId}/schedule")
+    @Operation(
+            summary = "Расписание платности подтеста",
+            description = "Окно бесплатности одного подтеста. В это окно подтест бесплатен для всех пользователей. "
+                    + "`{ \"freeFrom\": null, \"freeUntil\": null }` — очистить окно. Время — Asia/Bishkek."
+    )
+    public ResponseEntity<AdminTestResponse.AdminSubTestResponse> updateSubTestSchedule(
+            @Parameter(description = "ID подтеста") @PathVariable Long subTestId,
+            @Valid @RequestBody ScheduleRequest request) {
+        return ResponseEntity.ok(adminTestService.updateSubTestSchedule(subTestId, request));
     }
 
     @PatchMapping("/sub-tests/{subTestId}/paid")

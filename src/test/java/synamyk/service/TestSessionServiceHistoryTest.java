@@ -16,7 +16,6 @@ import synamyk.repo.SubTestRepository;
 import synamyk.repo.TestSessionRepository;
 import synamyk.repo.UserAnswerRepository;
 import synamyk.repo.UserRepository;
-import synamyk.repo.UserTestAccessRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,7 +30,7 @@ class TestSessionServiceHistoryTest {
 
     @Mock SubTestRepository subTestRepository;
     @Mock QuestionRepository questionRepository;
-    @Mock UserTestAccessRepository accessRepository;
+    @Mock AccessResolver accessResolver;
     @Mock TestSessionRepository sessionRepository;
     @Mock UserAnswerRepository answerRepository;
     @Mock UserRepository userRepository;

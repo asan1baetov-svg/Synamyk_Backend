@@ -29,6 +29,15 @@ public class Payment extends BaseEntity {
     @JoinColumn(name = "test_id", nullable = false)
     private Test test;
 
+    /**
+     * Set when the payment buys a single sub-test. {@code null} = whole-test
+     * bundle purchase (legacy behaviour). When set, {@code test} is the
+     * sub-test's parent test (kept for reports and backward compatibility).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sub_test_id")
+    private SubTest subTest;
+
     @Column(unique = true, nullable = false)
     private UUID paymentId;
 

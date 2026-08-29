@@ -1,9 +1,12 @@
 package synamyk.dto.admin;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+
+import java.math.BigDecimal;
 
 @Data
 @Schema(description = "Request to create or update a sub-test")
@@ -29,6 +32,11 @@ public class CreateSubTestRequest {
 
     @Schema(description = "Whether this sub-test requires payment", example = "false")
     private Boolean isPaid = false;
+
+    @NotNull
+    @DecimalMin(value = "0", inclusive = true)
+    @Schema(description = "Price to unlock this single sub-test. Must be > 0 when isPaid = true.", example = "300.00")
+    private BigDecimal price = BigDecimal.ZERO;
 
     @NotNull
     @Schema(description = "Duration of the sub-test in minutes", example = "30")

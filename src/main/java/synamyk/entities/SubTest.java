@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,6 +51,22 @@ public class SubTest extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private Boolean isPaid = false;
+
+    /**
+     * Price to unlock this single sub-test. Independent of the parent test's
+     * bundle price. Must be &gt; 0 when {@link #isPaid} is true.
+     */
+    @Column(nullable = false, precision = 10, scale = 2, columnDefinition = "numeric(10,2) default 0")
+    @Builder.Default
+    private BigDecimal price = BigDecimal.ZERO;
+
+    /** Start of the "free for everyone" window; {@code null} = open-ended start. */
+    @Column
+    private LocalDateTime freeFrom;
+
+    /** End of the "free for everyone" window; {@code null} = open-ended end. */
+    @Column
+    private LocalDateTime freeUntil;
 
     @Column(nullable = false)
     @Builder.Default

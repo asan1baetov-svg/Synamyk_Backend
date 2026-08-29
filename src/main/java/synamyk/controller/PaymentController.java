@@ -14,6 +14,7 @@ import synamyk.dto.CreatePaymentResponse;
 import synamyk.dto.InitPaymentResponse;
 import synamyk.dto.PaymentHistoryEntry;
 import synamyk.entities.User;
+import synamyk.exception.AppException;
 import synamyk.service.PaymentService;
 
 import java.util.UUID;
@@ -44,12 +45,21 @@ public class PaymentController {
     @PostMapping("/init")
     @Operation(
             summary = "Инициировать платеж",
-            description = "Создает запись платежа в БД и возвращает параметры для Flutter ")
+            description = "Создаёт запись платежа в БД и возвращает параметры для Flutter. "
+                    + "Передайте ровно один из параметров: `testId` — покупка всего теста (bundle), "
+                    + "либо `subTestId` — покупка одного подтеста.")
     public ResponseEntity<InitPaymentResponse> initPayment(
-            @RequestParam Long testId,
+            @RequestParam(required = false) Long testId,
+            @RequestParam(required = false) Long subTestId,
             Authentication authentication) {
         User user = (User) authentication.getPrincipal();
-        return ResponseEntity.ok(paymentService.initPayment(user.getId(), testId));
+        if ((testId == null) == (subTestId == null)) {
+            throw new AppException("Укажите testId или subTestId.", "testId же subTestId көрсөтүңүз.");
+        }
+        InitPaymentResponse response = subTestId != null
+                ? paymentService.initPaymentSubTest(user.getId(), subTestId)
+                : paymentService.initPayment(user.getId(), testId);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/my")

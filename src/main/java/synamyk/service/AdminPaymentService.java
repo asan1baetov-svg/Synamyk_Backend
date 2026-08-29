@@ -174,6 +174,8 @@ public class AdminPaymentService {
                 .date(p.getPaidAt() != null ? p.getPaidAt() : p.getCreatedAt())
                 .earnedPoints(points != null ? points : 0)
                 .testTitle(p.getTest().getTitle())
+                .subTestId(p.getSubTest() != null ? p.getSubTest().getId() : null)
+                .subTestTitle(p.getSubTest() != null ? p.getSubTest().getTitle() : null)
                 .build();
     }
 

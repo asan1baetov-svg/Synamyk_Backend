@@ -14,7 +14,11 @@ import synamyk.exception.AppException;
 import synamyk.repo.*;
 import synamyk.util.PushMessages;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -102,25 +106,48 @@ public class AdminTestService {
     }
 
     /**
-     * Admin sets which sub-tests are paid and the price for the whole test.
-     * Sub-tests NOT in paidSubTestIds will be marked as free.
+     * Full pricing rewrite: sets the bundle price and, for every sub-test of the
+     * test, its {@code isPaid}/{@code price}. Sub-tests absent from the request
+     * are reset to free (isPaid=false, price=0).
      */
     @Transactional
     public AdminTestResponse updateTestPricing(Long testId, UpdateTestPricingRequest request) {
         Test test = testRepository.findById(testId)
                 .orElseThrow(() -> new AppException("Тест не найден.", "Тест табылган жок."));
 
+        List<SubTest> subTests = subTestRepository.findByTestIdOrderByLevelOrderAsc(testId);
+        Map<Long, SubTest> byId = subTests.stream().collect(Collectors.toMap(SubTest::getId, Function.identity()));
+
+        Map<Long, UpdateTestPricingRequest.SubTestPricing> incoming = request.getSubTests().stream()
+                .collect(Collectors.toMap(UpdateTestPricingRequest.SubTestPricing::getSubTestId, Function.identity(),
+                        (a, b) -> b));
+
+        for (UpdateTestPricingRequest.SubTestPricing p : incoming.values()) {
+            if (!byId.containsKey(p.getSubTestId())) {
+                throw new AppException(
+                        "Подтест " + p.getSubTestId() + " не принадлежит этому тесту.",
+                        "Подтест " + p.getSubTestId() + " бул тестке таандык эмес.");
+            }
+            validatePaidHasPrice(Boolean.TRUE.equals(p.getIsPaid()), p.getPrice(), p.getSubTestId());
+        }
+
         test.setPrice(request.getPrice());
         testRepository.save(test);
 
-        List<SubTest> subTests = subTestRepository.findByTestIdOrderByLevelOrderAsc(testId);
         for (SubTest st : subTests) {
-            st.setIsPaid(request.getPaidSubTestIds().contains(st.getId()));
+            UpdateTestPricingRequest.SubTestPricing p = incoming.get(st.getId());
+            if (p != null) {
+                st.setIsPaid(Boolean.TRUE.equals(p.getIsPaid()));
+                st.setPrice(p.getPrice());
+            } else {
+                st.setIsPaid(false);
+                st.setPrice(BigDecimal.ZERO);
+            }
             subTestRepository.save(st);
         }
 
-        log.info("Updated pricing for testId={}: price={}, paidSubTests={}",
-                testId, request.getPrice(), request.getPaidSubTestIds());
+        log.info("Updated pricing for testId={}: bundlePrice={}, subTests={}",
+                testId, request.getPrice(), incoming.keySet());
 
         return toAdminTestResponse(test);
     }
@@ -129,10 +156,57 @@ public class AdminTestService {
     public AdminTestResponse.AdminSubTestResponse setSubTestPaid(Long subTestId, boolean paid) {
         SubTest subTest = subTestRepository.findById(subTestId)
                 .orElseThrow(() -> new AppException("Подтест не найден.", "Подтест табылган жок."));
+        validatePaidHasPrice(paid, subTest.getPrice(), subTestId);
         subTest.setIsPaid(paid);
         subTestRepository.save(subTest);
         log.info("SubTest {} marked as {}", subTestId, paid ? "PAID" : "FREE");
         return toAdminSubTestResponse(subTest);
+    }
+
+    // ===== SCHEDULE (free windows) =====
+
+    @Transactional
+    public AdminTestResponse updateTestSchedule(Long testId, ScheduleRequest request) {
+        Test test = testRepository.findById(testId)
+                .orElseThrow(() -> new AppException("Тест не найден.", "Тест табылган жок."));
+        validateWindow(request);
+        test.setFreeFrom(request.getFreeFrom());
+        test.setFreeUntil(request.getFreeUntil());
+        testRepository.save(test);
+        log.info("Updated schedule for testId={}: freeFrom={}, freeUntil={}",
+                testId, request.getFreeFrom(), request.getFreeUntil());
+        return toAdminTestResponse(test);
+    }
+
+    @Transactional
+    public AdminTestResponse.AdminSubTestResponse updateSubTestSchedule(Long subTestId, ScheduleRequest request) {
+        SubTest subTest = subTestRepository.findById(subTestId)
+                .orElseThrow(() -> new AppException("Подтест не найден.", "Подтест табылган жок."));
+        validateWindow(request);
+        subTest.setFreeFrom(request.getFreeFrom());
+        subTest.setFreeUntil(request.getFreeUntil());
+        subTestRepository.save(subTest);
+        log.info("Updated schedule for subTestId={}: freeFrom={}, freeUntil={}",
+                subTestId, request.getFreeFrom(), request.getFreeUntil());
+        return toAdminSubTestResponse(subTest);
+    }
+
+    private void validateWindow(ScheduleRequest r) {
+        if (r.getFreeFrom() != null && r.getFreeUntil() != null && !r.getFreeUntil().isAfter(r.getFreeFrom())) {
+            throw new AppException(
+                    "Дата окончания бесплатности должна быть позже даты начала.",
+                    "Бекер мөөнөттүн аякталышы башталышынан кийин болушу керек.");
+        }
+    }
+
+    private void validatePaidHasPrice(boolean paid, BigDecimal price, Long subTestId) {
+        if (paid && (price == null || price.signum() <= 0)) {
+            String suffix = subTestId != null ? " (подтест " + subTestId + ")" : "";
+            String suffixKy = subTestId != null ? " (подтест " + subTestId + ")" : "";
+            throw new AppException(
+                    "Платный подтест должен иметь цену больше 0" + suffix + ".",
+                    "Акылуу подтесттин баасы 0дөн жогору болушу керек" + suffixKy + ".");
+        }
     }
 
     // ===== SUB-TESTS =====
@@ -142,6 +216,10 @@ public class AdminTestService {
         Test test = testRepository.findById(testId)
                 .orElseThrow(() -> new AppException("Тест не найден.", "Тест табылган жок."));
 
+        boolean paid = request.getIsPaid() != null && request.getIsPaid();
+        BigDecimal price = request.getPrice() != null ? request.getPrice() : BigDecimal.ZERO;
+        validatePaidHasPrice(paid, price, null);
+
         SubTest subTest = SubTest.builder()
                 .test(test)
                 .title(request.getTitle())
@@ -149,7 +227,8 @@ public class AdminTestService {
                 .levelName(request.getLevelName())
                 .levelNameKy(request.getLevelNameKy())
                 .levelOrder(request.getLevelOrder())
-                .isPaid(request.getIsPaid() != null && request.getIsPaid())
+                .isPaid(paid)
+                .price(price)
                 .durationMinutes(request.getDurationMinutes())
                 .active(true)
                 .build();
@@ -172,12 +251,17 @@ public class AdminTestService {
         SubTest subTest = subTestRepository.findById(subTestId)
                 .orElseThrow(() -> new AppException("Подтест не найден.", "Подтест табылган жок."));
 
+        boolean paid = request.getIsPaid() != null && request.getIsPaid();
+        BigDecimal price = request.getPrice() != null ? request.getPrice() : BigDecimal.ZERO;
+        validatePaidHasPrice(paid, price, subTestId);
+
         subTest.setTitle(request.getTitle());
         subTest.setTitleKy(request.getTitleKy());
         subTest.setLevelName(request.getLevelName());
         subTest.setLevelNameKy(request.getLevelNameKy());
         subTest.setLevelOrder(request.getLevelOrder());
-        subTest.setIsPaid(request.getIsPaid() != null && request.getIsPaid());
+        subTest.setIsPaid(paid);
+        subTest.setPrice(price);
         subTest.setDurationMinutes(request.getDurationMinutes());
 
         return toAdminSubTestResponse(subTestRepository.save(subTest));
@@ -257,21 +341,41 @@ public class AdminTestService {
         question.setOrderIndex(request.getOrderIndex());
         question.setPointValue(request.getPointValue());
 
-        // Replace options
-        optionRepository.deleteAll(
-                optionRepository.findByQuestionIdOrderByOrderIndexAsc(questionId));
+        // Replace options — merge in place so options already referenced by user
+        // answers (user_answer_selected_options) are not hard-deleted.
+        List<AnswerOption> existing =
+                optionRepository.findByQuestionIdOrderByOrderIndexAsc(questionId);
+        List<CreateQuestionRequest.AnswerOptionRequest> incoming = request.getOptions();
 
-        int optIndex = 0;
-        for (CreateQuestionRequest.AnswerOptionRequest optReq : request.getOptions()) {
-            AnswerOption option = AnswerOption.builder()
-                    .question(question)
-                    .label(optReq.getLabel())
-                    .text(optReq.getText())
-                    .textKy(optReq.getTextKy())
-                    .isCorrect(Boolean.TRUE.equals(optReq.getIsCorrect()))
-                    .orderIndex(optIndex++)
-                    .build();
-            optionRepository.save(option);
+        for (int i = 0; i < Math.max(existing.size(), incoming.size()); i++) {
+            if (i < existing.size() && i < incoming.size()) {
+                AnswerOption option = existing.get(i);
+                CreateQuestionRequest.AnswerOptionRequest optReq = incoming.get(i);
+                option.setLabel(optReq.getLabel());
+                option.setText(optReq.getText());
+                option.setTextKy(optReq.getTextKy());
+                option.setIsCorrect(Boolean.TRUE.equals(optReq.getIsCorrect()));
+                option.setOrderIndex(i);
+                optionRepository.save(option);
+            } else if (i < incoming.size()) {
+                CreateQuestionRequest.AnswerOptionRequest optReq = incoming.get(i);
+                optionRepository.save(AnswerOption.builder()
+                        .question(question)
+                        .label(optReq.getLabel())
+                        .text(optReq.getText())
+                        .textKy(optReq.getTextKy())
+                        .isCorrect(Boolean.TRUE.equals(optReq.getIsCorrect()))
+                        .orderIndex(i)
+                        .build());
+            } else {
+                AnswerOption option = existing.get(i);
+                if (optionRepository.countUserAnswerReferences(option.getId()) > 0) {
+                    throw new AppException(
+                            "Нельзя удалить вариант ответа, который уже выбирали пользователи. Отредактируйте его текст вместо удаления.",
+                            "Колдонуучулар мурда тандаган жооп вариантын өчүрүүгө болбойт. Өчүрүүнүн ордуна текстин оңдоңуз.");
+                }
+                optionRepository.delete(option);
+            }
         }
 
         return toAdminQuestionResponse(questionRepository.findById(questionId).orElseThrow());
@@ -297,6 +401,8 @@ public class AdminTestService {
                 .descriptionKy(test.getDescriptionKy())
                 .iconUrl(minioService.presign(test.getIconUrl()))
                 .price(test.getPrice())
+                .freeFrom(test.getFreeFrom())
+                .freeUntil(test.getFreeUntil())
                 .active(test.getActive())
                 .subTests(subTests.stream().map(this::toAdminSubTestResponse).toList())
                 .build();
@@ -311,6 +417,9 @@ public class AdminTestService {
                 .levelNameKy(st.getLevelNameKy())
                 .levelOrder(st.getLevelOrder())
                 .isPaid(st.getIsPaid())
+                .price(st.getPrice())
+                .freeFrom(st.getFreeFrom())
+                .freeUntil(st.getFreeUntil())
                 .durationMinutes(st.getDurationMinutes())
                 .questionCount(questionRepository.countBySubTestIdAndActiveTrue(st.getId()))
                 .active(st.getActive())

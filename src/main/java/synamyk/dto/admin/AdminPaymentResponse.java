@@ -18,6 +18,8 @@ public class AdminPaymentResponse {
     private LocalDateTime date;
     private Integer earnedPoints;
     private String testTitle;
+    private Long subTestId;      // null for a whole-test (bundle) purchase
+    private String subTestTitle; // null for a whole-test (bundle) purchase
 
     @Data
     @Builder

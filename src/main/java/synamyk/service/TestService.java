@@ -15,6 +15,7 @@ import synamyk.repo.TestSessionRepository;
 import synamyk.repo.UserTestAccessRepository;
 import synamyk.util.L10n;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -27,6 +28,7 @@ public class TestService {
     private final UserTestAccessRepository accessRepository;
     private final TestSessionRepository sessionRepository;
     private final MinioService minioService;
+    private final AccessResolver accessResolver;
 
     public List<TestListResponse> getAllTests(Long userId, String lang) {
         return testRepository.findByActiveTrueOrderByCreatedAtAsc().stream()
@@ -55,14 +57,16 @@ public class TestService {
         Test test = testRepository.findById(testId)
                 .orElseThrow(() -> new RuntimeException("Test not found"));
 
-        boolean hasAccess = accessRepository.existsActiveAccess(userId, testId, java.time.LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        boolean hasAccess = accessRepository.existsActiveAccess(userId, testId, now);
 
         List<SubTestResponse> subTests = subTestRepository
                 .findByTestIdAndActiveTrueOrderByLevelOrderAsc(testId)
                 .stream()
                 .map(st -> {
                     long questionCount = questionRepository.countBySubTestIdAndActiveTrue(st.getId());
-                    boolean subTestAccess = !st.getIsPaid() || hasAccess;
+                    boolean subTestAccess = accessResolver.hasSubTestAccess(userId, st, now);
+                    boolean effectiveFree = accessResolver.isEffectivelyFree(st, now);
 
                     List<TestSession> sessions = sessionRepository
                             .findByUserIdAndSubTestIdOrderByCreatedAtDesc(userId, st.getId());
@@ -82,9 +86,12 @@ public class TestService {
                             .levelName(L10n.pick(st.getLevelName(), st.getLevelNameKy(), lang))
                             .levelOrder(st.getLevelOrder())
                             .isPaid(st.getIsPaid())
+                            .price(st.getPrice())
                             .durationMinutes(st.getDurationMinutes())
                             .questionCount(questionCount)
                             .hasAccess(subTestAccess)
+                            .effectiveFree(effectiveFree)
+                            .freeUntil(accessResolver.freeUntilBoundary(st, now))
                             .hasCompleted(hasCompleted)
                             .bestScore(best != null ? best.getEarnedPoints() : null)
                             .bestSessionId(best != null ? best.getId() : null)
