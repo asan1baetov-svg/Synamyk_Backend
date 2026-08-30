@@ -41,6 +41,10 @@ public class SmsProService {
     @Value("${sms.smspro.enabled:true}")
     private boolean enabled;
 
+    /** TEMPORARY: when true, any code passes OTP verification (for testing). */
+    @Value("${sms.smspro.bypass:false}")
+    private boolean bypass;
+
     @Value("${sms.smspro.ttl-minutes:5}")
     private int otpTtlMinutes;
 
@@ -59,6 +63,11 @@ public class SmsProService {
         String formattedPhone = formatPhoneNumber(phone);
         String otpCode = generateOtpCode();
         String messageId = generateMessageId();
+
+        if (bypass) {
+            log.warn("OTP BYPASS enabled — issuing test OTP without sending SMS for phone: {}", formattedPhone);
+            return createTestOtp(formattedPhone, messageId, type, otpCode, lang);
+        }
 
         // Check for existing active OTP
         otpCodeRepository.findFirstByPhoneAndTypeAndVerifiedFalseOrderByCreatedAtDesc(formattedPhone, type)
@@ -199,7 +208,9 @@ public class SmsProService {
                     "Аракеттер саны ашып кетти. Жаңы код суранычы.");
         }
 
-        if (!otpCode.getCode().equals(request.getCode())) {
+        if (bypass) {
+            log.warn("OTP BYPASS enabled — accepting any code for phone: {}", formattedPhone);
+        } else if (!otpCode.getCode().equals(request.getCode())) {
             otpCode.setAttempts(otpCode.getAttempts() + 1);
             otpCodeRepository.save(otpCode);
             log.warn("Invalid OTP code for phone: {}, attempts: {}", formattedPhone, otpCode.getAttempts());

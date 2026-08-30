@@ -41,6 +41,8 @@ jwt:
 sms:
   smspro:
     enabled: ${SMS_ENABLED:true}
+    # TEMPORARY (testing): true = OTP verification accepts any code
+    bypass: ${SMS_BYPASS:true}
     url: ${SMSPRO_URL:https://smspro.nikita.kg/api/message}
     login: ${SMSPRO_LOGIN:GreenEcoMall}
     password: ${SMSPRO_PASSWORD:5v9jSKji}
